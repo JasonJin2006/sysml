@@ -1,0 +1,62 @@
+# Build output. Rebuildable and large, so never tracked.
+core/target/
+target/
+
+# Local scratch and tool state for this workspace.
+.work/
+.workbuddy/
+.zcode/
+.claude/settings.local.json
+.sysml-cache/
+
+# Python environments and caches.
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+research/.venv/
+
+# Downloaded third-party material and archived probes. Large, fetched by a script rather than
+# committed, or kept as evidence for a note that cites it.
+research/upstream/
+research/corpus/
+research/archive/
+research/*.json
+# Syside's published diagram renderings, kept as the visual reference the renderer is measured
+# against. Third-party output: compared locally, never redistributed.
+research/syside-diagrams/
+
+# Research output that is not part of the product: reference-implementation cards, third-party
+# README captures, the ecosystem survey, and the labelled samples behind the clause measurement.
+# They stay on disk for the notes that cite them and are not published.
+research/oracle/
+research/upstream-readmes/
+research/borrow-audit.md
+research/sysml-v2-landscape.md
+research/sensmetry-position.md
+research/clauses/assistant-labels.tsv
+research/clauses/score_labels.py
+
+# Generated output. Each is rebuilt by the tool that writes it, and the inputs are the source.
+core/out/
+core/bin/
+core/build.log
+core/crates/sysml-studio/ui/node_modules/
+
+# Working documents are not published. The public repository carries the code, the product
+# documentation in the root and under core/, and the validation corpus the gate needs.
+/docs/
+research/**/*.md
+research/experiments/
+/AGENTS.md
+/.git-blame-ignore-revs
+
+# Editor and OS noise.
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.swp
+
+# Command output in the repository root is never source.
+/*.log

@@ -1,0 +1,32 @@
+[workspace]
+members = [
+    "crates/sysml-model",
+    "crates/sysml-parser",
+    "crates/sysml-resolve",
+    "crates/sysml-semantics",
+    "crates/sysml-ledger",
+    "crates/sysml-syntax",
+    "crates/sysml-view",
+    "crates/sysml-cli",
+    "crates/sysml-studio",
+    "crates/sysml-diff",
+    "crates/sysml-lsp",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+sysml-model = { path = "crates/sysml-model" }
+sysml-parser = { path = "crates/sysml-parser" }
+sysml-resolve = { path = "crates/sysml-resolve" }
+sysml-semantics = { path = "crates/sysml-semantics" }
+sysml-ledger = { path = "crates/sysml-ledger" }
+sysml-syntax = { path = "crates/sysml-syntax" }
+sysml-view = { path = "crates/sysml-view" }
+sysml-studio = { path = "crates/sysml-studio" }
+sysml-diff = { path = "crates/sysml-diff" }
+sysml-lsp = { path = "crates/sysml-lsp" }

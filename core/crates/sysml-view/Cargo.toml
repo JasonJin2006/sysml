@@ -1,0 +1,12 @@
+[package]
+name = "sysml-view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sysml-model.workspace = true
+sysml-resolve.workspace = true
+
+[dev-dependencies]
+sysml-syntax = { path = "../sysml-syntax" }

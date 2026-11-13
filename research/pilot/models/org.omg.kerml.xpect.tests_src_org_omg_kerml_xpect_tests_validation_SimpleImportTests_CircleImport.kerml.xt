@@ -1,0 +1,29 @@
+//* 
+XPECT_SETUP org.omg.kerml.xpect.tests.parsing.KerMLParsingTest
+	ResourceSet {
+		ThisFile {}
+		File {from ="/library/Base.kerml"}
+	}
+	Workspace {
+		JavaProject {
+			SrcFolder {
+				ThisFile {}
+				File {from ="/library/Base.kerml"}
+			}
+		}
+	}
+END_SETUP 
+*/
+
+// XPECT noErrors ---> ""
+package test{
+	classifier A{
+		public import B::*;
+		classifier a{}
+	}
+	
+	classifier B{
+		public import A::*;
+		classifier b{}
+	}
+}

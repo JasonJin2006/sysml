@@ -1,0 +1,41 @@
+//* 
+XPECT_SETUP org.omg.sysml.xpect.tests.validation.valid.SysMLTests
+	ResourceSet {
+       ThisFile {}
+        File {from ="/library.kernel/Base.kerml"}
+        File {from ="/library.kernel/Occurrences.kerml"}
+        File {from ="/library.kernel/Objects.kerml"}
+        File {from ="/library.kernel/Performances.kerml"}
+        File {from ="/library.systems/Items.sysml"}
+        File {from ="/library.systems/Parts.sysml"}
+    }
+    Workspace {
+        JavaProject {
+            SrcFolder {
+                ThisFile {}
+		            File {from ="/library.kernel/Base.kerml"}
+		            File {from ="/library.kernel/Occurrences.kerml"}
+		            File {from ="/library.kernel/Objects.kerml"}
+		            File {from ="/library.kernel/Performances.kerml"}
+		            File {from ="/library.systems/Items.sysml"}
+		            File {from ="/library.systems/Parts.sysml"}
+			}
+		}
+	}
+END_SETUP 
+*/
+// XPECT noErrors ---> ""
+package 'Redefinition Example' {
+
+	part def Engine {
+		part cyl : Cylinder[4..6];
+	}
+	part def SmallEngine :> Engine {
+		part redefines cyl[4];
+	}
+	part def BigEngine :> Engine {
+		part redefines cyl[6];
+	}
+
+	part def Cylinder;
+}

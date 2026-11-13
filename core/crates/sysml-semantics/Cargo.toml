@@ -1,0 +1,13 @@
+[package]
+name = "sysml-semantics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Evaluation and semantic checks for a SysML v2 element tree: values, constraints, connection ends"
+
+[dependencies]
+sysml-model.workspace = true
+sysml-resolve.workspace = true
+
+[dev-dependencies]
+sysml-syntax = { path = "../sysml-syntax" }

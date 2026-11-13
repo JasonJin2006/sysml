@@ -1,0 +1,59 @@
+{
+  "name": "sysml-v2",
+  "displayName": "SysML v2",
+  "description": "SysML v2 language support: diagnostics, go to definition, find references, hover — from the sysml kernel.",
+  "version": "0.1.0",
+  "publisher": "JasonJin2006",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages", "Linters"],
+  "activationEvents": ["onLanguage:sysml"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "sysml",
+        "aliases": ["SysML", "sysml"],
+        "extensions": [".sysml", ".kerml"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sysml",
+        "scopeName": "source.sysml",
+        "path": "./syntaxes/sysml.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "SysML v2",
+      "properties": {
+        "sysml.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the sysml-lsp executable. Empty means it is found on PATH, or built beside this extension."
+        },
+        "sysml.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace the messages exchanged with the language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

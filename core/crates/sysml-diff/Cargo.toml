@@ -1,0 +1,14 @@
+[package]
+name = "sysml-diff"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What changed between two models, and what a change reaches"
+
+[dependencies]
+sysml-model.workspace = true
+sysml-resolve.workspace = true
+sysml-semantics.workspace = true
+
+[dev-dependencies]
+sysml-syntax = { path = "../sysml-syntax" }

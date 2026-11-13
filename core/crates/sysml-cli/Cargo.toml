@@ -1,0 +1,20 @@
+[package]
+name = "sysml-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sysml"
+path = "src/main.rs"
+
+[dependencies]
+sysml-model.workspace = true
+sysml-resolve.workspace = true
+sysml-syntax.workspace = true
+sysml-view.workspace = true
+sysml-semantics.workspace = true
+sysml-ledger.workspace = true
+sysml-studio.workspace = true
+sysml-diff.workspace = true
+serde_json = "1"

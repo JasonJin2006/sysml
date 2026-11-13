@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "SysML",
+  "scopeName": "source.sysml",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.sysml", "match": "//.*$" },
+        { "name": "comment.block.sysml", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        { "name": "string.quoted.single.sysml", "begin": "'", "end": "'" },
+        { "name": "string.quoted.double.sysml", "begin": "\"", "end": "\"" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.sysml", "match": "\\b\\d+(\\.\\d+)?\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.sysml",
+          "match": "\\b(package|library|namespace|import|private|public|protected|alias|expose|dependency)\\b"
+        },
+        {
+          "name": "keyword.declaration.sysml",
+          "match": "\\b(part|port|item|attribute|action|state|requirement|constraint|calc|case|analysis|verification|use|view|viewpoint|rendering|metadata|enum|interface|connection|allocation|flow|occurrence|concern|subject|objective|actor|stakeholder|doc|comment|rep|def)\\b"
+        },
+        {
+          "name": "keyword.other.sysml",
+          "match": "\\b(perform|exhibit|satisfy|verify|require|assume|assert|derived|abstract|variation|variant|ref|individual|snapshot|timeslice|in|out|inout|then|else|if|while|for|loop|fork|join|merge|decide|send|accept|return|by|from|to|of|about)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.sysml",
+          "match": "\\b(Boolean|String|Integer|Real|Natural|UnlimitedNatural)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.sysml", "match": "::|:>>|:>|=>|->|\\.\\.|==|!=|<=|>=|\\*\\*|[=><!+\\-*/^%&|?]" }
+      ]
+    }
+  }
+}

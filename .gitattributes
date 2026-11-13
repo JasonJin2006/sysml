@@ -1,0 +1,28 @@
+# Every text file is LF, in the repository and in the working tree, on every platform.
+#
+# This is the file that makes a fresh clone on Windows agree. `core.autocrlf` is false in this
+# clone, but a global `core.autocrlf=true` would otherwise check these files out as CRLF and the
+# next commit would show every line changed.
+* text=auto eol=lf
+
+# Never touch a file that is not text. `text=auto` sniffs content, and a generated file can sniff
+# wrong, so the shapes this project has produced are named explicitly.
+*.exe binary
+*.dll binary
+*.pdb binary
+*.o binary
+*.rlib binary
+*.bin binary
+*.so binary
+*.dylib binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.zip binary
+*.gz binary

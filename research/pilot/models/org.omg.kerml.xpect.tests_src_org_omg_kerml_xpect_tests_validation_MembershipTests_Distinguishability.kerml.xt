@@ -1,0 +1,45 @@
+//* 
+XPECT_SETUP org.omg.kerml.xpect.tests.parsing.KerMLParsingTest
+	ResourceSet {
+		ThisFile {}
+		File {from ="/library/Base.kerml"}
+	}
+	Workspace {
+		JavaProject {
+			SrcFolder {
+				ThisFile {}
+				File {from ="/library/Base.kerml"}
+			}
+		}
+	}
+END_SETUP 
+*/
+package test{
+	// XPECT warnings ---> "Duplicate of other owned member name" at "A"
+	classifier A {}
+	// XPECT warnings ---> "Duplicate of other owned member name" at "A"
+	package A{
+		classifier A {}
+		alias A_alias for A;
+	}
+	// XPECT warnings ---> "Duplicate of other owned member name" at "A"
+	package A{}
+	// XPECT warnings ---> "Duplicate of other owned member name" at "A"
+	feature A: A::A_alias;
+	feature B: A::A_alias;
+	
+	classifier C {
+		classifier D {}
+		classifier F {}
+	}
+	classifier D :> C {
+		// XPECT warnings --> "Duplicate of inherited member name 'D' from C" at "D"
+		classifier D {}
+	}
+	classifier E :> C;
+	classifier F :> E {
+		// XPECT warnings --> "Duplicate of inherited member name 'F' from C" at "F"
+		classifier F {}
+	}	
+
+}

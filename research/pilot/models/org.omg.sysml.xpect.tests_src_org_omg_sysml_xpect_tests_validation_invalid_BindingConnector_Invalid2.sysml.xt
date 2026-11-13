@@ -1,0 +1,46 @@
+//*
+XPECT_SETUP org.omg.sysml.xpect.tests.validation.invalid.SysMLTests
+	ResourceSet {
+		ThisFile {}
+		File {from ="/library.kernel/Base.kerml"}
+		File {from ="/library.kernel/Links.kerml"}
+       	File {from ="/library.kernel/Occurrences.kerml"}
+       	File {from ="/library.kernel/Objects.kerml"}
+       	File {from ="/library.kernel/Performances.kerml"}
+		File {from ="/library.kernel/BaseFunctions.kerml"}
+		File {from ="/library.kernel/DataFunctions.kerml"}
+		File {from ="/library.kernel/ScalarValues.kerml"}
+		File {from ="/library.systems/Items.sysml"}
+		File {from ="/library.systems/Parts.sysml"}
+		File {from ="/library.systems/Ports.sysml"}
+
+	}
+	Workspace {
+		JavaProject {
+			SrcFolder {
+				ThisFile {}
+				File {from ="/library.kernel/Base.kerml"}
+				File {from ="/library.kernel/Links.kerml"}
+       			File {from ="/library.kernel/Occurrences.kerml"}
+       			File {from ="/library.kernel/Objects.kerml"}
+       			File {from ="/library.kernel/Performances.kerml"}
+       			File {from ="/library.kernel/DataFunctions.kerml"}
+				File {from ="/library.kernel/BaseFunctions.kerml"}
+				File {from ="/library.kernel/ScalarValues.kerml"}
+				File {from ="/library.systems/Items.sysml"}
+				File {from ="/library.systems/Parts.sysml"}
+				File {from ="/library.systems/Ports.sysml"}
+			}
+		}
+	}
+END_SETUP 
+*/
+package '1a-Parts Tree Simplified' {
+	
+	part rearAxleAssembly {			
+		part rearWheel: Wheel[2];
+		// XPECT warnings --> "Bound features should have conforming types" at "rearWheel+1"
+		ref x = rearWheel+1;
+	}
+	part def Wheel;
+}

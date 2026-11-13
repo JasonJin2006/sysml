@@ -1,0 +1,37 @@
+//*
+XPECT_SETUP org.omg.sysml.xpect.tests.validation.invalid.SysMLTests
+	ResourceSet {
+		ThisFile {}
+		File {from ="/library.kernel/Base.kerml"}
+		File {from ="/library.kernel/Links.kerml"}
+       	File {from ="/library.kernel/Occurrences.kerml"}
+       	File {from ="/library.kernel/Objects.kerml"}
+		File {from ="/library.systems/Items.sysml"}
+		File {from ="/library.systems/Parts.sysml"}
+		File {from ="/library.systems/Connections.sysml"}
+	}
+	Workspace {
+		JavaProject {
+			SrcFolder {
+				ThisFile {}
+				File {from ="/library.kernel/Base.kerml"}
+				File {from ="/library.kernel/Links.kerml"}
+        		File {from ="/library.kernel/Occurrences.kerml"}
+ 		      	File {from ="/library.kernel/Objects.kerml"}
+ 				File {from ="/library.systems/Items.sysml"}
+				File {from ="/library.systems/Parts.sysml"}
+				File {from ="/library.systems/Connections.sysml"}
+			}
+		}
+	}
+END_SETUP 
+*/
+package Relationship_invalid_relatedElement {
+	part v {
+		part b0;
+		// XPECT errors ---> "Must have at least two related elements" at "connection { end ::> b0; }"
+		connection { end ::> b0; }
+		
+		abstract connection { end ::> b0; }	
+	} 
+}

@@ -1,0 +1,8 @@
+[package]
+name = "sysml-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SysML v2 and KerML textual notation: lexer and recursive-descent parser"
+
+[dependencies]

@@ -1,0 +1,23 @@
+{
+  "name": "sysml-studio-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-reporter=spec \"src/*.test.ts\""
+  },
+  "dependencies": {
+    "monaco-editor": "^0.57.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}

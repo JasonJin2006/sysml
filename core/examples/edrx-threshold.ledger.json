@@ -1,0 +1,101 @@
+{
+  "model": "edrx-threshold.sysml",
+  "questions": [],
+  "decisions": [
+    {
+      "id": "D001",
+      "element": "Gpp23501Edrx::deployment::cycle",
+      "value": "20.48 [s]",
+      "origin": "spec",
+      "why": "one value from the eDRX cycle range the clause lists for NR",
+      "falsifier": "",
+      "inputs": [],
+      "question": null,
+      "decided_by": "agent",
+      "approved_by": null,
+      "cites": [
+        "S001"
+      ]
+    },
+    {
+      "id": "D002",
+      "element": "Gpp23501Edrx::deployment::pagingTimeWindowApplies",
+      "value": "true",
+      "origin": "spec",
+      "why": "the clause requires a PTW above the 10.24s threshold, and 20.48s is above it",
+      "falsifier": "",
+      "inputs": [],
+      "question": null,
+      "decided_by": "agent",
+      "approved_by": null,
+      "cites": [
+        "S001"
+      ]
+    },
+    {
+      "id": "D003",
+      "element": "Gpp23501Edrx::Ue",
+      "value": "a UE with the DRX parameters the clauses constrain",
+      "origin": "assumed",
+      "why": "both clauses are stated over a UE, so one has to exist in the model",
+      "falsifier": "if the deployment turns out to be NB-IoT, which the clauses exclude from RRC_INACTIVE",
+      "inputs": [],
+      "question": null,
+      "decided_by": "agent",
+      "approved_by": "human:jason",
+      "cites": []
+    }
+  ],
+  "judgements": [
+    {
+      "id": "J001",
+      "requirement": "Gpp23501Edrx::PtwAppliesAboveThreshold",
+      "verdict": "pass",
+      "detail": "",
+      "fingerprint": "e637c8f1dacf668d",
+      "judged_by": "human:jason",
+      "at": ""
+    },
+    {
+      "id": "J002",
+      "requirement": "Gpp23501Edrx::RanPagingUsesCnHandlingAboveThreshold",
+      "verdict": "pass",
+      "detail": "",
+      "fingerprint": "e637c8f1dacf668d",
+      "judged_by": "human:jason",
+      "at": ""
+    },
+    {
+      "id": "J003",
+      "requirement": "Gpp23501Edrx::PtwAppliesAboveThreshold",
+      "verdict": "pass",
+      "detail": "",
+      "fingerprint": "757f009ae0588a4d",
+      "judged_by": "human:jason",
+      "at": ""
+    },
+    {
+      "id": "J004",
+      "requirement": "Gpp23501Edrx::RanPagingUsesCnHandlingAboveThreshold",
+      "verdict": "pass",
+      "detail": "",
+      "fingerprint": "757f009ae0588a4d",
+      "judged_by": "human:jason",
+      "at": ""
+    }
+  ],
+  "sources": [
+    {
+      "id": "S001",
+      "kind": "standard",
+      "title": "3GPP TS 23.501 V18.0.0",
+      "locator": "23501-i80.docx clause 5.31.7.2.1",
+      "quote": "For NR, Paging Time Window applies for extended DRX lengths greater than 10.24s as defined in TS 38.304",
+      "accessed": "2026-11-13",
+      "jurisdiction": "INTL",
+      "added_by": "agent"
+    }
+  ],
+  "market": "global",
+  "jurisdictions": "INTL"
+}

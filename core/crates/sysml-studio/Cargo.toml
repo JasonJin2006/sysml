@@ -1,0 +1,19 @@
+[package]
+name = "sysml-studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "An editable canvas over a SysML v2 model: the picture is a projection, the source stays the truth"
+
+[dependencies]
+sysml-model.workspace = true
+sysml-resolve.workspace = true
+sysml-semantics.workspace = true
+sysml-ledger.workspace = true
+sysml-syntax.workspace = true
+sysml-view.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+sysml-resolve.workspace = true
