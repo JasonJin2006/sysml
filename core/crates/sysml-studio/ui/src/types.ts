@@ -10,8 +10,11 @@ export interface CanvasPort {
   side: 'left' | 'right';
 }
 
+export type NodeSymbol = 'rectangle' | 'initial' | 'done' | 'decision' | 'merge' | 'fork' | 'join' | 'actor';
+
 export interface CanvasNode {
   key: string;
+  symbol: NodeSymbol;
   index: number;
   stereotype: string;
   label: string;
@@ -37,9 +40,10 @@ export interface CanvasFrame {
   w: number;
   h: number;
   title: number;
+  rows: string[];
 }
 
-export type ArrowKind = 'composite' | 'typing' | 'connector' | 'satisfy' | 'annotate';
+export type ArrowKind = 'composite' | 'typing' | 'connector' | 'satisfy' | 'annotate' | 'transition';
 // `annotate` is an edge the SVG export has drawn since annotations became edges; the canvas
 // has to know it too, or the two pictures disagree about the same model.
 
@@ -56,7 +60,7 @@ export interface CanvasEdge {
 }
 
 export interface CanvasIssue {
-  severity: 'error' | 'warning';
+  severity: 'error' | 'warning' | 'info';
   code: string;
   message: string;
   at: string;
@@ -138,6 +142,9 @@ export interface CanvasDocument {
    * whole text: a comment moves that one and must not invalidate a verdict. */
   ledger_fingerprint: string;
   judgements: CanvasJudgement[];
+  layout?: 'nested' | 'tree';
+  scoped?: boolean;
+  depth?: number | null;
   summary: Summary;
 }
 

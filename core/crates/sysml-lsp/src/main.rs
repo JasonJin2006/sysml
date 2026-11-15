@@ -7,7 +7,7 @@
 //! Diagnostics go to stderr. A server that printed anything else on stdout would corrupt the
 //! protocol, and the failure looks like a client bug rather than a server one.
 
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 
 fn main() {
     let stdin = std::io::stdin();

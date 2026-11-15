@@ -249,6 +249,40 @@ fn reason(status: u16) -> &'static str {
     }
 }
 
+fn grid_response(query: &str, state: &Mutex<State>, csv: bool) -> Response {
+    let params = query_map(query);
+    let kind = match crate::grid::Kind::parse(
+        params.get("kind").map(String::as_str).unwrap_or("elements"),
+    ) {
+        Ok(kind) => kind,
+        Err(error) => return Response::text(400, error),
+    };
+    let sources = {
+        let mut guard = match state.lock() {
+            Ok(guard) => guard,
+            Err(_) => return Response::text(500, "server state is poisoned".to_string()),
+        };
+        if let Err(error) = guard.session.reload() {
+            return Response::text(500, error);
+        }
+        guard.session.sources.clone()
+    };
+    let loaded = match sources.load() {
+        Ok(loaded) => loaded,
+        Err(error) => return Response::text(400, error),
+    };
+    let grid = crate::grid::build(&loaded.roots, kind);
+    if csv {
+        Response {
+            status: 200,
+            content_type: "text/csv; charset=utf-8",
+            body: grid.csv,
+        }
+    } else {
+        Response::json(serde_json::json!(grid).to_string())
+    }
+}
+
 fn route(method: &str, path: &str, query: &str, body: &str, state: &Mutex<State>) -> Response {
     match (method, path) {
         ("GET", "/") | ("GET", "/index.html") => {
@@ -256,6 +290,8 @@ fn route(method: &str, path: &str, query: &str, body: &str, state: &Mutex<State>
         }
         ("GET", "/bundle.js") => Response::asset("text/javascript; charset=utf-8", ASSET_CANVAS),
         ("GET", "/bundle.css") => Response::asset("text/css; charset=utf-8", ASSET_STYLE),
+        ("GET", "/api/grid") => grid_response(query, state, false),
+        ("GET", "/api/grid.csv") => grid_response(query, state, true),
         ("GET", "/api/fingerprint") => {
             // What the one-second poll asks: has the source changed since the page drew it? The
             // answer re-reads the files and digests them, and builds nothing. The poll used to ask
@@ -295,6 +331,30 @@ fn route(method: &str, path: &str, query: &str, body: &str, state: &Mutex<State>
             guard.session.mode = mode;
             // `only` names a model-declared view; its exposes then decide what is drawn.
             guard.session.model_view = params.get("only").filter(|k| !k.is_empty()).cloned();
+            guard.session.scope = params.get("scope").filter(|k| !k.is_empty()).cloned();
+            guard.session.depth = match params.get("depth") {
+                Some(value) => match value.parse::<usize>() {
+                    Ok(0) => None,
+                    Ok(depth) if depth <= 64 => Some(depth),
+                    _ => {
+                        return Response::text(
+                            400,
+                            "Depth must be between 1 and 64, or omitted for unlimited.".to_string(),
+                        )
+                    }
+                },
+                None => None,
+            };
+            guard.session.style = match params.get("layout").map(String::as_str) {
+                None | Some("nested") => Some(sysml_view::layered::Style::Nested),
+                Some("tree") => Some(sysml_view::layered::Style::Tree),
+                Some(_) => {
+                    return Response::text(
+                        400,
+                        "Unknown layout. Use `nested` or `tree`.".to_string(),
+                    )
+                }
+            };
             // Re-read the files: a person may have edited the model in their own editor, and
             // showing a stale picture after an external change is the failure mode this whole
             // design is supposed to avoid.
@@ -1013,4 +1073,123 @@ fn percent_decode(text: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+#[cfg(test)]
+mod grid_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Fixture {
+        dir: PathBuf,
+        state: Mutex<State>,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../target/tmp")
+                .join(format!(
+                    "studio-grid-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
+            std::fs::create_dir_all(&dir).expect("scratch directory");
+            let model = dir.join("model.sysml");
+            std::fs::write(
+                &model,
+                "package P { part def Device; part unit : Device; requirement def Available; requirement def Future; satisfy Available by unit; }",
+            )
+            .expect("model fixture");
+            let session = Session::open(vec![model.clone()], View::General, Mode::Extended)
+                .expect("open model");
+            Self {
+                dir,
+                state: Mutex::new(State { model, session }),
+            }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    #[test]
+    fn grid_routes_return_aligned_rows_keys_and_the_cli_csv() {
+        let fixture = Fixture::new();
+        for kind in ["elements", "matrix"] {
+            let response = route(
+                "GET",
+                "/api/grid",
+                &format!("kind={kind}"),
+                "",
+                &fixture.state,
+            );
+            assert_eq!(response.status, 200, "{}", response.body);
+            let grid: serde_json::Value = serde_json::from_str(&response.body).expect("grid JSON");
+            assert_eq!(
+                grid["rows"].as_array().unwrap().len(),
+                grid["rowKeys"].as_array().unwrap().len()
+            );
+            assert!(grid["description"]
+                .as_str()
+                .unwrap()
+                .starts_with("Read-only"));
+            let exported = route(
+                "GET",
+                "/api/grid.csv",
+                &format!("kind={kind}"),
+                "",
+                &fixture.state,
+            );
+            assert_eq!(exported.status, 200);
+            assert_eq!(exported.content_type, "text/csv; charset=utf-8");
+            assert_eq!(exported.body, grid["csv"].as_str().unwrap());
+            if kind == "matrix" {
+                assert_eq!(
+                    grid["rowKeys"],
+                    serde_json::json!(["P::Available", "P::Future"])
+                );
+                assert_eq!(grid["rows"][1][1], "");
+            }
+        }
+    }
+
+    #[test]
+    fn grid_reloads_saved_source_without_changing_the_selected_diagram() {
+        let fixture = Fixture::new();
+        let path = fixture.state.lock().unwrap().model.clone();
+        std::fs::write(&path, "package Updated { part def Fresh; }").expect("external edit");
+        let response = route("GET", "/api/grid", "kind=elements", "", &fixture.state);
+        assert_eq!(response.status, 200, "{}", response.body);
+        let grid: serde_json::Value = serde_json::from_str(&response.body).expect("grid JSON");
+        assert!(grid["rowKeys"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("Updated::Fresh")));
+        assert_eq!(fixture.state.lock().unwrap().session.view, View::General);
+    }
+
+    #[test]
+    fn grid_kind_validation_is_explicit_and_routes_are_read_only() {
+        let fixture = Fixture::new();
+        for path in ["/api/grid", "/api/grid.csv"] {
+            assert_eq!(
+                route("GET", path, "kind=unknown", "", &fixture.state).status,
+                400
+            );
+            assert_eq!(
+                route("POST", path, "kind=elements", "{}", &fixture.state).status,
+                404
+            );
+        }
+        let guard = fixture.state.lock().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&guard.model).unwrap(),
+            guard.session.sources.texts[0]
+        );
+    }
 }

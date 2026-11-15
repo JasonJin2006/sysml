@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fitCamera, MIN_READABLE_ZOOM } from './geometry.ts';
 
-const doc = (width: number, height: number) => ({ width, height }) as any;
+const doc = (width: number, height: number) => ({ width, height, nodes: [], frames: [], edges: [] }) as any;
 const box = { width: 1000, height: 600 };
 
 test('a picture that fits keeps the zoom readable', () => {
@@ -27,6 +27,17 @@ test('the floor still wins when it hides less than two and a half viewports', ()
   // 1200x1200 in a 1000x600 pane: the floor shows 900x900, which overflows by less than 2.5x.
   const camera = fitCamera(doc(1200, 1200), box)!;
   assert.equal(camera.zoom, MIN_READABLE_ZOOM);
+});
+
+test('fit includes boxes pinned above and left of the original origin', () => {
+  const model = doc(400, 200);
+  model.nodes = [{ x: -300, y: -120, w: 96, h: 34 }];
+  model.edges = [{ points: [[-300, -110], [-330, -110], [-330, 40]] }];
+  const camera = fitCamera(model, box)!;
+  assert.ok(camera.x - 330 * camera.zoom >= 0);
+  assert.ok(camera.y - 120 * camera.zoom >= 0);
+  assert.ok(camera.x + 400 * camera.zoom <= box.width);
+  assert.ok(camera.y + 200 * camera.zoom <= box.height);
 });
 
 test('a picture that fits is centred', () => {

@@ -43,12 +43,22 @@ impl Sources {
                 std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
             texts.push(text);
         }
+        Ok(Self::of(paths, texts))
+    }
+
+    /// Buffers that were already read, with the paths they belong to.
+    ///
+    /// A language server holds unsaved text, and an edit computed against the file on disk would
+    /// disagree with what the person is looking at. Taking the texts as given lets the same edit
+    /// machinery run over them: the digests describe the texts passed in, which is what the write
+    /// path compares against, so nothing about conflict detection changes.
+    pub fn of(paths: &[PathBuf], texts: Vec<String>) -> Self {
         let digests = texts.iter().map(|t| conflict::Digest::of(t)).collect();
-        Ok(Self {
+        Self {
             paths: paths.to_vec(),
             texts,
             digests,
-        })
+        }
     }
 
     pub fn load(&self) -> Result<Loaded, String> {
@@ -57,7 +67,7 @@ impl Sources {
     }
 
     /// Apply one replacement per buffer, from the end backwards so earlier offsets stay valid.
-    fn apply(&self, mut edits: Vec<Edit>) -> Result<Self, String> {
+    fn apply(&self, edits: Vec<Edit>) -> Result<Self, String> {
         if edits.is_empty() {
             return Ok(self.clone());
         }
@@ -88,7 +98,6 @@ impl Sources {
                 text.replace_range(edit.range.start..edit.range.end, &edit.text);
             }
         }
-        edits.clear();
         // The edited buffer has not been written yet, so its digests still describe the files as
         // they were read. That is what the write compares against.
         Ok(Self {

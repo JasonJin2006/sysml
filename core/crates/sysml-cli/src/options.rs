@@ -22,9 +22,15 @@ pub fn accepted(command: &str) -> Option<&'static [&'static str]> {
     Some(match command {
         // These read only the model.
         "outline" => &["--json", "--filter"],
+        // `format` writes unless told to check: a person who ran it meant it, and a script that
+        // wants an answer without a write asks for one explicitly.
+        "format" => &["--check"],
         "resolve" => &["--json"],
         "graph" => &["--json", "--view", "--mode", "--filter"],
-        "render" => &["--view", "--mode", "--out", "--filter", "--style"],
+        "render" => &[
+            "--view", "--mode", "--out", "--filter", "--style", "--expose",
+        ],
+        "views" => &["--json"],
         "check" => &["--json", "--library...", "--no-cache"],
         "prov" => &["--json", "--library..."],
         "units" => &["--json", "--library..."],
@@ -73,7 +79,7 @@ pub fn accepted(command: &str) -> Option<&'static [&'static str]> {
 pub fn is_switch(key: &str) -> bool {
     matches!(
         key,
-        "--json" | "--issues" | "--defer" | "--no-cache" | "--matrix"
+        "--json" | "--issues" | "--defer" | "--no-cache" | "--matrix" | "--check"
     )
 }
 
@@ -149,6 +155,10 @@ pub fn usage_line(command: &str) -> Option<String> {
 /// Every command, with the one-line description shown by `--help`.
 pub const COMMANDS: &[(&str, &str)] = &[
     ("outline", "the model as an indented tree"),
+    (
+        "format",
+        "re-indent the source (--check to report without writing)",
+    ),
     ("resolve", "every written name and what it binds to"),
     (
         "graph",
@@ -175,6 +185,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "the stage the model is in, and the one command to run",
     ),
     ("status", "one summary of both gates"),
+    (
+        "views",
+        "the views the model declares, and the projection each asks for",
+    ),
     ("review", "a self-contained HTML report (--out file.html)"),
     (
         "conformance",

@@ -226,8 +226,9 @@ package P {
     let triangles = svg
         .split("<path d=\"M")
         .filter(|c| {
-            c.contains("fill=\"#FFFFFF\"")
-                && c.split('"').next().unwrap_or("").matches('L').count() == 2
+            let tag = c.split('>').next().unwrap_or("");
+            tag.contains("fill=\"#FFFFFF\"")
+                && tag.split('"').next().unwrap_or("").matches('L').count() == 2
         })
         .count();
     assert_eq!(triangles, 3, "one triangle per typing edge");
@@ -370,11 +371,12 @@ fn a_box_is_coloured_by_the_kind_of_element_it_draws() {
 #[test]
 fn a_title_reads_on_its_own_header_band() {
     // The header is a saturated colour for a definition and a pale one for a usage, so one ink
-    // cannot serve both.
+    // cannot serve both. The name is the bold line at the notation's 10px, which is what
+    // `symbols::TEXT` fixes.
     let loaded = sysml_syntax::load(ONE_CONTAINER).expect("parses");
     let svg = sysml_view::render_view(&loaded.roots, View::General, Mode::Extended, "t");
     let inks: std::collections::BTreeSet<&str> = svg
-        .match_indices("font-size=\"12\" fill=\"#")
+        .match_indices("font-weight=\"700\" fill=\"#")
         .map(|(i, tag)| {
             let rest = &svg[i + tag.len()..];
             &rest[..rest.find('"').unwrap_or(0)]

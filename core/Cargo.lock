@@ -129,8 +129,10 @@ dependencies = [
  "serde_json",
  "sysml-ledger",
  "sysml-model",
+ "sysml-parser",
  "sysml-resolve",
  "sysml-semantics",
+ "sysml-studio",
  "sysml-syntax",
 ]
 

@@ -24,6 +24,8 @@ mod lower;
 pub mod library;
 pub mod project;
 
+pub mod format;
+
 pub use lower::{
     load, load_project, load_project_at, load_project_with_extra, load_project_with_extra_at,
     lower_document, lower_expr, render, render_model, LibrarySource, Loaded,

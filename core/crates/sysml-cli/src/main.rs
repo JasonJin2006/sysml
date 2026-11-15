@@ -28,6 +28,10 @@ const EXIT_USAGE: u8 = 2;
 /// The model is clean and its ledger has not been started. Nothing is broken; the next step is
 /// to record where the numbers came from.
 const EXIT_UNFINISHED: u8 = 3;
+/// A file is not formatted, from `format --check`. Not `EXIT_MODEL`: the model is fine and only
+/// its layout differs, and a hook that reported "the model has a problem" for a missing indent
+/// would send its reader looking for a defect that is not there.
+const EXIT_UNFORMATTED: u8 = 4;
 
 /// `sysml resolve <file.sysml> [...]` — the symbol table, then every written type reference
 /// with the element it actually binds to, then what each import brought in. Unresolved names
@@ -338,6 +342,17 @@ fn report_problems(loaded: &sysml_syntax::Loaded) -> (String, usize, usize) {
     let mut out = String::new();
     let mut count = 0;
     let mut unsupported = 0;
+    // A bare name that is a reserved word. Reported first because it is the one problem whose fix
+    // is a pair of quotes, and because the rest of the model's report reads oddly until it is
+    // fixed: every rule below treats the element by a name the grammar never agreed to.
+    for reserved in &loaded.reserved_names {
+        count += 1;
+        let word = &reserved.word;
+        out.push_str(&format!(
+            "{word}:{}: error[RES001]: `{word}` is a reserved word and cannot be a name; write `'{word}'` to use it as one\n",
+            reserved.line
+        ));
+    }
     for reference in index.references(&loaded.roots) {
         // A language function is not a model element the author forgot to declare. The semantic
         // layer already draws that line; the resolver's reference list does not, so the filter
@@ -780,6 +795,36 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     };
 
     match command.as_str() {
+        // Re-indent the file, or report whether it is already indented.
+        //
+        // It reads the file rather than the loaded project, because the formatter works on the
+        // text: the tree has already dropped every comment and every blank line, and those are
+        // what a formatter has to preserve. `--check` exists so a script or a pre-commit hook can
+        // ask the question without a write, and exits non-zero so it can fail a build.
+        "format" => {
+            let check = option_value(&options, "--check").is_some();
+            let mut changed = 0usize;
+            for path in &paths {
+                let source = fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+                let after = sysml_syntax::format::format(&source);
+                if after == source {
+                    continue;
+                }
+                changed += 1;
+                if check {
+                    println!("{path}: not formatted");
+                } else {
+                    fs::write(path, &after).map_err(|e| format!("{path}: {e}"))?;
+                    println!("{path}: formatted");
+                }
+            }
+            // A `--check` run that found something has to fail, or a hook that uses it would pass
+            // on exactly the files it exists to stop.
+            if check && changed > 0 {
+                return Ok(ExitCode::from(EXIT_UNFORMATTED));
+            }
+            Ok(ExitCode::from(EXIT_PASS))
+        }
         "outline" => {
             // The pruned tree lives in `filtered`; taking a reference keeps the unfiltered case free
             // of a clone of the whole model.
@@ -835,12 +880,31 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                     return Err(format!("unknown style `{other}`: use nested or tree"));
                 }
             };
+            // `--expose` draws what one model-declared view exposes, which is the only way to see
+            // the picture the model itself asks for: a `view` usage names a subset, and the model
+            // is the authority on that subset. Its projection comes from the view's own type, so
+            // `--expose` and `--view` are not meant to be given together; the view wins, because
+            // guessing which of two answers the caller meant is worse than ignoring the ignored one.
+            let drawn;
+            let roots: &[sysml_model::Element] = match option_value(&options, "--expose") {
+                Some(key) => {
+                    let exposed = sysml_studio::document::exposures_of(&loaded.roots, &key);
+                    if exposed.is_empty() {
+                        return Err(format!(
+                            "no view named `{key}`; `sysml views <model>` lists the ones this model declares"
+                        ));
+                    }
+                    drawn = sysml_studio::document::prune_to(&loaded.roots, &exposed);
+                    &drawn
+                }
+                None => &loaded.roots,
+            };
             let svg = match &keep {
                 Some(keep) => {
-                    let projected = sysml_view::project_filtered(&loaded.roots, view, mode, keep);
+                    let projected = sysml_view::project_filtered(roots, view, mode, keep);
                     sysml_view::render_styled(&projected, &title, style)
                 }
-                None => sysml_view::render_view_styled(&loaded.roots, view, mode, &title, style),
+                None => sysml_view::render_view_styled(roots, view, mode, &title, style),
             };
             match out_path {
                 Some(target) => {
@@ -848,6 +912,43 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                     println!("wrote {target}");
                 }
                 None => println!("{svg}"),
+            }
+            Ok(ExitCode::from(EXIT_PASS))
+        }
+        // What the model declares as a picture, and which projection each asks for. `render
+        // --expose <key>` draws one; this prints the keys, because a key is a qualified name and
+        // nobody guesses those.
+        "views" => {
+            let entries = sysml_studio::document::views(&loaded.roots);
+            if wants_json(&options) {
+                let items: Vec<serde_json::Value> = entries
+                    .iter()
+                    .map(|entry| {
+                        serde_json::json!({
+                            "key": entry.key,
+                            "name": entry.name,
+                            "target": entry.target,
+                            "projection": entry.projection,
+                        })
+                    })
+                    .collect();
+                print_json(&serde_json::Value::Array(items))?;
+            } else if entries.is_empty() {
+                println!("this model declares no view");
+                println!(
+                    "a view is `view myView : SomeViewType {{ expose ...; }}`; `sysml graph --view gv` draws the whole model"
+                );
+            } else {
+                for entry in &entries {
+                    // An empty projection is a real answer: the model names a view kind this
+                    // kernel has no projection for, and saying so is better than guessing one.
+                    let how = if entry.projection.is_empty() {
+                        format!("(no projection for `{}`)", entry.target)
+                    } else {
+                        format!("--view {}", entry.projection)
+                    };
+                    println!("{:<40} {}", entry.key, how);
+                }
             }
             Ok(ExitCode::from(EXIT_PASS))
         }
@@ -905,7 +1006,11 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                          then: `sysml scope {model} --jurisdictions ...` then `sysml decide \
                          {model} --element <name> --origin spec|derived|assumed`.\n\
                          run `sysml prov {model}` for the list of what is missing.",
-                            errors = audit.error_count(),
+                            errors = audit
+                                .issues
+                                .iter()
+                                .filter(|issue| issue.code == "PROV001")
+                                .count(),
                             parts = audit.unaccounted_parts.len(),
                             model = model_path.display(),
                         );

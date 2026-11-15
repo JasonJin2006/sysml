@@ -1,3 +1,4 @@
+import { Text, Flex, Card, Heading, Box } from '@radix-ui/themes';
 import { useState } from 'react';
 import type { CanvasDocument, CanvasValue } from './types';
 import { waitingOf } from './waiting';
@@ -39,20 +40,22 @@ function Overview({ doc }: { doc: CanvasDocument }) {
   const waiting = waitingOf(doc.summary);
   if (waiting.length === 0) {
     return (
-      <p className="idle-clear">
-        {t('Nothing is waiting: every value has a record, every assumption is approved, no question is open.')}
-      </p>
+      <Text as="p" size="1" color="gray" mx="3" mt="3">
+        {t('No outstanding items in this summary. Check Problems for validation results.')}
+      </Text>
     );
   }
   return (
-    <div className="overview">
+    <Flex direction="column" gap="2" p="3">
       {waiting.map((entry) => (
-        <div key={entry.key} className="stat warn">
-          <div className="n">{entry.count}</div>
-          <div className="k">{t(entry.key)}</div>
-        </div>
+        <Card key={entry.key} size="1" variant="surface">
+          <Flex align="baseline" gap="2">
+            <Text size="4" weight="bold" color="amber">{entry.count}</Text>
+            <Text size="1" color="gray">{t(entry.key)}</Text>
+          </Flex>
+        </Card>
       ))}
-    </div>
+    </Flex>
   );
 }
 
@@ -159,7 +162,7 @@ function ValueSection({
         value.unit_known ? (
           <div className="line">
             <span>{t('Quantity')}</span>
-            <span className="v mono">{`${value.unit} · ${value.dimension}`}</span>
+            <span className="v mono">{value.unit}<span className="unit-dimension">{value.dimension}</span></span>
           </div>
         ) : (
           <div className="line">
@@ -173,7 +176,7 @@ function ValueSection({
         <>
           <div className="line">
             <span className={`tag ${value.origin === 'assumed' ? 'warn' : 'ok'}`}>
-              {`${value.origin} · ${value.decision_id}`}
+              {value.origin}<span className="unit-dimension">{value.decision_id}</span>
             </span>
             <span className="v">
               {value.approved_by
@@ -297,8 +300,10 @@ function AlignPanel({
 }) {
   return (
     <aside className="inspector">
-      <h2 className="sheet">{t('{n} selected', { n: selection.length })}</h2>
-      <p className="sheet-meta">{t('Ctrl-click a box to add it to the selection.')}</p>
+      <Box px="3" pt="3">
+        <Heading size="3" trim="start">{t('{n} selected', { n: selection.length })}</Heading>
+        <Text as="p" size="1" color="gray">{t('Ctrl-click a box to add it to the selection.')}</Text>
+      </Box>
       <Section title={t('Align')}>
         <div className="align-grid">
           {ALIGN_BUTTONS.map(([how, label]) => (
@@ -341,10 +346,10 @@ export function Inspector({
   if (!node) {
     return (
       <aside className="inspector">
-        <div className="inspector-idle">
-          <p className="idle-title">{t('Nothing selected')}</p>
-          <p className="idle-note">{t('Click a box to see its properties, provenance and problems.')}</p>
-        </div>
+        <Box p="3" pb="1">
+          <Text as="p" size="2" weight="medium">{t('Nothing selected')}</Text>
+          <Text as="p" size="1" color="gray">{t('Click a box to see its properties, provenance and problems.')}</Text>
+        </Box>
         <Overview doc={doc} />
       </aside>
     );
@@ -358,8 +363,10 @@ export function Inspector({
 
   return (
     <aside className="inspector">
-      <h2 className="sheet">{node.label}</h2>
-      <p className="sheet-meta">{`«${node.stereotype}»${node.is_def ? ' def' : ''}`}</p>
+      <Box px="3" pt="3">
+        <Heading size="3" trim="start">{node.label}</Heading>
+        <Text as="p" size="1" color="gray">{`«${node.stereotype}»${node.is_def ? ' def' : ''}`}</Text>
+      </Box>
 
       {/* The one question a picture cannot answer: is this box in the way?
           Silence when it is not — an inspector that says "fine" about every box teaches people to

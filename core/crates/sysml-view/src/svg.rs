@@ -27,7 +27,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::graph::{Arrow, Graph, Node, Side as PortSide, View};
-use crate::layered::{self, Input, Style, Symbol};
+use crate::layered::{self, Input, Style};
 use crate::packages;
 use crate::states::{self, Group};
 
@@ -43,6 +43,11 @@ const LANE_W: f32 = 92.0;
 const LANE_V: f32 = 46.0;
 const MIN_W: f32 = 96.0;
 const MARGIN: f32 = 48.0;
+/// The page margin a general-view geometry adds to every box's x.
+///
+/// A caller that saves and restores box positions works in the reported frame, which includes this;
+/// the layout itself works without it, so a saved x is that x minus this.
+pub const PAGE_MARGIN: f32 = MARGIN;
 const LABEL_SIZE: f32 = 9.0;
 const LABEL_H: f32 = 11.0;
 /// How far out of its frame a connector leaves a port before the router takes over.
@@ -94,6 +99,19 @@ fn rows_h(node: &Node) -> f32 {
 /// Public because an editor draws the same frame: a canvas that measured its boxes differently
 /// would show a picture that disagrees with the exported SVG for the same model.
 pub fn node_size(node: &Node) -> (f32, f32) {
+    use crate::graph::NodeSymbol;
+    match node.symbol {
+        NodeSymbol::Initial | NodeSymbol::Done => return (20.0, 20.0),
+        NodeSymbol::Decision | NodeSymbol::Merge => return (28.0, 28.0),
+        NodeSymbol::Fork | NodeSymbol::Join => return (60.0, 8.0),
+        NodeSymbol::Actor => {
+            return (
+                (text_w(node.label(), 10.0) + 16.0).max(crate::symbols::ACTOR_W),
+                crate::symbols::ACTOR_H + 34.0,
+            )
+        }
+        NodeSymbol::Rectangle => {}
+    }
     let mut w =
         text_w(&format!("«{}»", node.stereotype), 9.0).max(text_w(node.label(), 12.0)) + 26.0;
     for attr in &node.attributes {
@@ -158,6 +176,36 @@ fn title_ink(style: crate::style::BoxStyle) -> &'static str {
     }
 }
 
+fn control_symbol(node: &Node, x: f32, y: f32, w: f32, h: f32) -> Option<String> {
+    use crate::graph::NodeSymbol;
+    let ink = crate::symbols::INK;
+    let cx = x + w / 2.0;
+    let cy = y + h / 2.0;
+    let glyph = match node.symbol {
+        NodeSymbol::Initial => format!("<circle cx=\"{cx:.1}\" cy=\"{cy:.1}\" r=\"{:.1}\" fill=\"{ink}\"/>", w.min(h) / 2.0),
+        NodeSymbol::Done => format!(
+            "<circle cx=\"{cx:.1}\" cy=\"{cy:.1}\" r=\"{:.1}\" fill=\"none\" stroke=\"{ink}\" stroke-width=\"1\"/><circle cx=\"{cx:.1}\" cy=\"{cy:.1}\" r=\"{:.1}\" fill=\"{ink}\"/>",
+            w / 2.0, w * 0.3
+        ),
+        NodeSymbol::Decision | NodeSymbol::Merge => format!(
+            "<path d=\"M{cx:.1},{y:.1} L{:.1},{cy:.1} L{cx:.1},{:.1} L{x:.1},{cy:.1} Z\" fill=\"#FFFFFF\" stroke=\"{ink}\" stroke-width=\"1\"/>", x+w, y+h
+        ),
+        NodeSymbol::Fork | NodeSymbol::Join => format!("<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" fill=\"{ink}\"/>"),
+        _ => return None,
+    };
+    let mut svg = format!("<g data-symbol=\"{}\">{glyph}", node.symbol.keyword());
+    if !matches!(node.symbol, NodeSymbol::Initial | NodeSymbol::Done)
+        && node.label() != node.symbol.keyword()
+    {
+        svg.push_str(&format!(
+            "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" font-size=\"9\" fill=\"{ink}\">{}</text>",
+            y+h+12.0, crate::symbols::FONT, esc(node.label())
+        ));
+    }
+    svg.push_str("</g>");
+    Some(svg)
+}
+
 fn draw_frame(
     g: &Graph,
     i: usize,
@@ -170,37 +218,88 @@ fn draw_frame(
     labels: &mut Vec<PortLabel>,
 ) -> f32 {
     let node = &g.nodes[i];
-    let radius = if node.is_def { 0.0 } else { 8.0 };
-    let cx = x + w / 2.0;
+    if let Some(glyph) = control_symbol(node, x, y, w, h) {
+        out.push_str(&glyph);
+        return y + h;
+    }
     let style = crate::style::for_stereotype(&node.stereotype);
-    // The body colour first, then the header band on top of it. Drawing the header as a second
-    // rectangle keeps the rounded corners of the whole box: a header with its own radii would
-    // show a square corner poking out of a rounded usage box.
+    if node.symbol == crate::graph::NodeSymbol::Actor {
+        let cx = x + w / 2.0;
+        out.push_str(&crate::symbols::actor_figure(
+            cx,
+            y + 4.0,
+            crate::symbols::INK,
+            crate::symbols::STROKE,
+        ));
+        out.push_str(&format!(
+            "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" \
+font-size=\"{}\" fill=\"{}\">«{}»</text>",
+            y + crate::symbols::ACTOR_H + 14.0,
+            crate::symbols::FONT,
+            crate::symbols::TEXT_SMALL,
+            crate::symbols::INK_STEREOTYPE,
+            esc(&node.stereotype)
+        ));
+        out.push_str(&format!(
+            "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" \
+font-size=\"{}\" fill=\"{}\">{}</text>",
+            y + crate::symbols::ACTOR_H + 27.0,
+            crate::symbols::FONT,
+            crate::symbols::TEXT,
+            crate::symbols::INK,
+            esc(node.label())
+        ));
+        return y + crate::symbols::ACTOR_H + 30.0;
+    }
+    let radius = if node.is_def {
+        0.0
+    } else {
+        crate::symbols::RADIUS_USAGE
+    };
+    let cx = x + w / 2.0;
+    let body_stroke = if style.header == style.body {
+        style.border
+    } else {
+        "none"
+    };
     out.push_str(&format!(
-        "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{radius}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"1\"/>",
-        style.body, style.border
+        "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{radius:.1}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"/>",
+        style.body, body_stroke, crate::symbols::STROKE
     ));
     if style.header != style.body {
-        // The band follows the box's own top corners: a rounded usage with a square header shows
-        // two right angles sticking out of the rounded outline.
-        let (l, r, t, b) = (x, x + w, y, y + TITLE_H);
-        let (tl, tr) = (x + radius, x + w - radius);
-        out.push_str(&format!(
-            "<path d=\"M{l:.1} {:.1} Q{l:.1} {t:.1} {tl:.1} {t:.1} L{tr:.1} {t:.1} Q{r:.1} {t:.1} {r:.1} {:.1} L{r:.1} {b:.1} L{l:.1} {b:.1} Z\" fill=\"{}\" stroke=\"none\"/>",
-            y + radius,
-            y + radius,
-            style.header
-        ));
+        if h <= TITLE_H {
+            out.push_str(&format!(
+                "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{radius:.1}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"/>",
+                style.header, style.border, crate::symbols::STROKE
+            ));
+        } else {
+            let (l, r, t, b) = (x, x + w, y, y + TITLE_H);
+            let (tl, tr) = (x + radius, x + w - radius);
+            out.push_str(&format!(
+                "<path d=\"M{l:.1} {:.1} Q{l:.1} {t:.1} {tl:.1} {t:.1} L{tr:.1} {t:.1} Q{r:.1} {t:.1} {r:.1} {:.1} L{r:.1} {b:.1} L{l:.1} {b:.1} Z\" fill=\"{}\" stroke=\"none\"/>",
+                y + radius, y + radius, style.header
+            ));
+            out.push_str(&format!(
+                "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{radius:.1}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\"/>",
+                style.border, crate::symbols::STROKE
+            ));
+        }
     }
+    // The stereotype is set in italic, which is how the notation separates an element's kind from
+    // its name; the name below it is bold.
     out.push_str(&format!(
-        "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"9\" fill=\"{}\">«{}»</text>",
+        "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" font-size=\"{}\" font-style=\"italic\" fill=\"{}\">«{}»</text>",
         y + 13.0,
+        crate::symbols::FONT,
+        crate::symbols::TEXT_SMALL,
         title_ink(style),
         esc(&node.stereotype)
     ));
     out.push_str(&format!(
-        "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"12\" fill=\"{}\">{}</text>",
+        "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" font-size=\"{}\" font-weight=\"700\" fill=\"{}\">{}</text>",
         y + TITLE_H - 9.0,
+        crate::symbols::FONT,
+        crate::symbols::TEXT,
         title_ink(style),
         esc(node.label())
     ));
@@ -212,13 +311,19 @@ fn draw_frame(
             x + w,
             style.border
         ));
-        // A compartment states what it holds. Without the heading a reader has to work out from
-        // the `+` prefixes that these rows are attributes; the reference names every band.
         if !node.attributes.is_empty() {
+            let heading = if node
+                .stereotype
+                .split_whitespace()
+                .any(|word| word == "state")
+            {
+                "state actions"
+            } else {
+                "attributes"
+            };
             out.push_str(&format!(
-                "<text x=\"{:.1}\" y=\"{:.1}\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"8.5\" fill=\"#666666\">attributes</text>",
-                x + 8.0,
-                row_y + 11.0
+                "<text x=\"{:.1}\" y=\"{:.1}\" font-family=\"{}\" font-size=\"8.5\" font-style=\"italic\" fill=\"{}\">{heading}</text>",
+                x + 8.0, row_y + 11.0, crate::symbols::FONT, crate::symbols::INK_MUTED
             ));
             row_y += 14.0;
         }
@@ -324,67 +429,6 @@ fn draw_frame(
     row_y
 }
 
-/// Ownership symbol: a filled diamond in the notation's `COMPOSITION` shape, centred on `(x, y)`.
-fn diamond(out: &mut String, x: f32, y: f32) {
-    let d = 5.0;
-    out.push_str(&format!(
-        "<path d=\"M{x:.1} {y:.1} L{:.1} {:.1} L{x:.1} {:.1} L{:.1} {:.1} Z\" fill=\"#000000\" stroke=\"#000000\" stroke-width=\"0.8\"/>",
-        x - d,
-        y + d,
-        y + 2.0 * d,
-        x + d,
-        y + d
-    ));
-}
-
-#[derive(Clone, Copy)]
-enum Dir {
-    Up,
-    Down,
-}
-
-/// Hollow triangle of the `:|>` decoration, apex at `(x, y)`, opening away from `dir`.
-///
-/// PlantUML's `LinkDecor.DEFINEDBY` is declared with `fill=false` and the same geometry as
-/// `EXTENDS` (LinkDecor.java:72,78), so the triangle is hollow; `ExtremityExtendsLike.DefinedBy`
-/// then draws two dots before it. The filled variant is `COMPOSITION` (the diamond) only.
-fn hollow_triangle(out: &mut String, x: f32, y: f32, dir: Dir) {
-    let (a, b, c, d) = match dir {
-        Dir::Up => (x - 4.5, y + 7.0, x + 4.5, y + 7.0),
-        Dir::Down => (x - 4.5, y - 7.0, x + 4.5, y - 7.0),
-    };
-    out.push_str(&format!(
-        "<path d=\"M{a:.1} {b:.1} L{x:.1} {y:.1} L{c:.1} {d:.1} Z\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-    ));
-}
-
-/// The colon of `:|>`. Two dots across the line, just before the head, so a typing link reads
-/// the way the textual `x : Type` does.
-fn colon(out: &mut String, x: f32, y: f32, dir: Dir) {
-    let offset = match dir {
-        Dir::Up => 15.0,
-        Dir::Down => -15.0,
-    };
-    for dx in [-3.0f32, 3.0] {
-        out.push_str(&format!(
-            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"1.4\" fill=\"#000000\"/>",
-            x + dx,
-            y + offset
-        ));
-    }
-}
-
-/// Open arrowhead of a dependency, `(dx, dy)` being the direction it points in.
-fn open_head(out: &mut String, x: f32, y: f32, dx: f32, dy: f32) {
-    out.push_str(&format!(
-        "<path d=\"M{x:.1} {y:.1} l{:.1} {:.1} M{x:.1} {y:.1} l{:.1} {:.1}\" stroke=\"#000000\" stroke-width=\"1.1\" fill=\"none\"/>",
-        -4.0 * dx + 4.0 * dy,
-        -4.0 * dy - 4.0 * dx,
-        -4.0 * dx - 4.0 * dy,
-        -4.0 * dy + 4.0 * dx
-    ));
-}
-
 struct PendingLabel {
     text: String,
     /// Preferred centre x and baseline.
@@ -446,7 +490,21 @@ pub struct GeneralGeometry {
     pub layered: layered::Layered,
 }
 
+#[path = "general_compact.rs"]
+mod general_compact;
+
 pub fn general_geometry(g: &Graph, style: Style) -> GeneralGeometry {
+    general_geometry_pinned(g, style, &[])
+}
+
+/// [`general_geometry`], with boxes a person has placed held where they placed them.
+///
+/// The export passes nothing: a file is a projection of the model, and where somebody dragged a box
+/// in their editor is not part of the model. The canvas passes the sidecar, because there the
+/// arrangement *is* what the person is looking at.
+pub fn general_geometry_pinned(g: &Graph, style: Style, pins: &[layered::Pin]) -> GeneralGeometry {
+    let debug = std::env::var_os("SYSML_DEBUG_RENDER").is_some();
+    let mut stage = std::time::Instant::now();
     let sizes: Vec<(f32, f32)> = g.nodes.iter().map(node_size).collect();
     let inputs: Vec<Input> = g
         .edges
@@ -458,38 +516,321 @@ pub fn general_geometry(g: &Graph, style: Style) -> GeneralGeometry {
             from: e.from,
             to: e.to,
             kind: e.arrow,
+            // A variation's alternative is drawn beside its variation, not below it. The
+            // relationship is an ownership edge like any other, so the pair is recognised by what
+            // the member says it is rather than by the edge, which carries no modifier.
+            same_rank: g
+                .nodes
+                .get(e.to)
+                .is_some_and(|n| n.stereotype.contains("variant")),
         })
         .collect();
     let preorder: Vec<usize> = (0..g.nodes.len()).collect();
     let parent: Vec<Option<usize>> = g.nodes.iter().map(|n| n.parent).collect();
-    let lay = match style {
+    let mut lay = match style {
         Style::Nested => layered::build(&sizes, &inputs, &preorder, &parent),
         Style::Tree => layered::tree(&sizes, &inputs, &parent),
     };
+    if style == Style::Nested {
+        general_compact::compact(&mut lay, &inputs);
+    }
+    general_compact::pin(&mut lay, pins);
+    if debug {
+        eprintln!("general: layout+compact {:?}", stage.elapsed());
+        stage = std::time::Instant::now();
+    }
     let origin = MARGIN;
-    let boxes = lay
+    let boxes: Vec<(usize, f32, f32, f32, f32)> = lay
         .nodes
         .iter()
         .filter_map(|nd| nd.real.map(|i| (i, nd.x + origin, nd.y, nd.w, nd.h)))
         .collect();
-    let edges = lay
-        .routes
+
+    let frames: HashMap<usize, Rect> = boxes
         .iter()
-        .filter(|r| r.points.len() >= 2)
-        .map(|r| {
+        .map(|&(i, x, y, w, h)| {
             (
-                r.edge,
-                r.points.iter().map(|p| (p.0 + origin, p.1)).collect(),
+                i,
+                Rect {
+                    x0: x,
+                    y0: y,
+                    x1: x + w,
+                    y1: y + h,
+                },
             )
         })
         .collect();
+    let mut attachments: HashMap<(usize, u8), Vec<Attachment>> = HashMap::new();
+    for route in &lay.routes {
+        let edge = &g.edges[route.edge];
+        let (Some(a), Some(b)) = (frames.get(&edge.from), frames.get(&edge.to)) else {
+            continue;
+        };
+        let (from_side, to_side) = facing_sides(a, b);
+        for (node, side, source, other) in [
+            (edge.from, from_side, true, b),
+            (edge.to, to_side, false, a),
+        ] {
+            let position = if side < 2 {
+                (other.x0 + other.x1) / 2.0
+            } else {
+                (other.y0 + other.y1) / 2.0
+            };
+            attachments
+                .entry((node, side))
+                .or_default()
+                .push(Attachment {
+                    edge: route.edge,
+                    source,
+                    position,
+                });
+        }
+    }
+    if debug {
+        eprintln!("general: attachments {:?}", stage.elapsed());
+        stage = std::time::Instant::now();
+    }
+    let mut endpoints = HashMap::new();
+    for ((node, side), mut members) in attachments {
+        members.sort_by(|a, b| a.position.total_cmp(&b.position).then(a.edge.cmp(&b.edge)));
+        let frame = frames[&node];
+        let mut groups: Vec<Vec<Attachment>> = Vec::new();
+        let mut composite = Vec::new();
+        for attachment in members {
+            if attachment.source && g.edges[attachment.edge].arrow == Arrow::Composite {
+                composite.push(attachment);
+            } else {
+                groups.push(vec![attachment]);
+            }
+        }
+        if !composite.is_empty() {
+            groups.push(composite);
+        }
+        groups.sort_by(|a, b| {
+            let center = |group: &[Attachment]| {
+                group.iter().map(|a| a.position).sum::<f32>() / group.len() as f32
+            };
+            center(a)
+                .total_cmp(&center(b))
+                .then(a[0].edge.cmp(&b[0].edge))
+        });
+        let count = groups.len();
+        for (slot, group) in groups.into_iter().enumerate() {
+            let ratio = (slot + 1) as f32 / (count + 1) as f32;
+            for attachment in group {
+                endpoints.insert(
+                    (attachment.edge, attachment.source),
+                    boundary_slot(frame, side, ratio),
+                );
+            }
+        }
+    }
+    if debug {
+        eprintln!("general: endpoint slots {:?}", stage.elapsed());
+        stage = std::time::Instant::now();
+    }
+    let bounds = Rect {
+        x0: boxes.iter().map(|b| b.1 - MARGIN).fold(-MARGIN, f32::min),
+        y0: boxes.iter().map(|b| b.2 - MARGIN).fold(-MARGIN, f32::min),
+        x1: lay.width + 3.0 * MARGIN,
+        y1: lay.height + MARGIN,
+    };
+    let obstacles: Vec<Rect> = boxes.iter().map(|b| frames[&b.0]).collect();
+    let edges: Vec<_> = lay
+        .routes
+        .iter()
+        .filter_map(|route| {
+            let edge = &g.edges[route.edge];
+            let &(from, from_lead) = endpoints.get(&(route.edge, true))?;
+            let &(to, to_lead) = endpoints.get(&(route.edge, false))?;
+            let old = normalised_route(route, frames[&edge.from], origin);
+            let points = reroute_general(from, from_lead, to, to_lead, &old, &obstacles, bounds);
+            Some((route.edge, points))
+        })
+        .collect();
+    if debug {
+        eprintln!("general: edge routes {:?}", stage.elapsed());
+        stage = std::time::Instant::now();
+    }
+    let width = edges
+        .iter()
+        .flat_map(|(_, points)| points)
+        .map(|p| p.0 + MARGIN)
+        .fold(lay.width + 2.0 * MARGIN, f32::max);
+    let height = edges
+        .iter()
+        .flat_map(|(_, points)| points)
+        .map(|p| p.1 + MARGIN)
+        .fold(lay.height + MARGIN, f32::max);
+    if debug {
+        eprintln!("general: dimensions {:?}", stage.elapsed());
+    }
+    lay.width = width - 2.0 * MARGIN;
+    lay.height = height - MARGIN;
     GeneralGeometry {
         boxes,
         edges,
-        width: lay.width + 2.0 * MARGIN,
-        height: lay.height + MARGIN,
+        width,
+        height,
         layered: lay,
     }
+}
+
+struct Attachment {
+    edge: usize,
+    source: bool,
+    position: f32,
+}
+
+struct GeneralHead {
+    at: (f32, f32),
+    neighbour: (f32, f32),
+    arrow: Arrow,
+}
+
+fn facing_sides(a: &Rect, b: &Rect) -> (u8, u8) {
+    let dx = (b.x0 + b.x1 - a.x0 - a.x1) / 2.0;
+    let dy = (b.y0 + b.y1 - a.y0 - a.y1) / 2.0;
+    let gap_x = (b.x0 - a.x1).max(a.x0 - b.x1);
+    let gap_y = (b.y0 - a.y1).max(a.y0 - b.y1);
+    if gap_x > gap_y {
+        if dx >= 0.0 {
+            (3, 2)
+        } else {
+            (2, 3)
+        }
+    } else if dy >= 0.0 {
+        (1, 0)
+    } else {
+        (0, 1)
+    }
+}
+
+fn boundary_slot(r: Rect, side: u8, ratio: f32) -> ((f32, f32), (f32, f32)) {
+    const LEAD: f32 = 20.0;
+    let x = r.x0 + 8.0 + (r.x1 - r.x0 - 16.0).max(0.0) * ratio;
+    let y = r.y0 + 8.0 + (r.y1 - r.y0 - 16.0).max(0.0) * ratio;
+    match side {
+        0 => ((x, r.y0), (x, r.y0 - LEAD)),
+        1 => ((x, r.y1), (x, r.y1 + LEAD)),
+        2 => ((r.x0, y), (r.x0 - LEAD, y)),
+        _ => ((r.x1, y), (r.x1 + LEAD, y)),
+    }
+}
+
+fn normalised_route(route: &layered::Route, source: Rect, origin: f32) -> Vec<(f32, f32)> {
+    let mut points: Vec<_> = route.points.iter().map(|p| (p.0 + origin, p.1)).collect();
+    if points.last().is_some_and(|p| contains(&source, *p)) {
+        points.reverse();
+    }
+    points
+}
+
+fn cuts_box(a: (f32, f32), b: (f32, f32), r: &Rect) -> bool {
+    if (a.1 - b.1).abs() < 0.01 {
+        a.1 > r.y0 + 0.5
+            && a.1 < r.y1 - 0.5
+            && a.0.min(b.0) < r.x1 - 0.5
+            && a.0.max(b.0) > r.x0 + 0.5
+    } else {
+        a.0 > r.x0 + 0.5
+            && a.0 < r.x1 - 0.5
+            && a.1.min(b.1) < r.y1 - 0.5
+            && a.1.max(b.1) > r.y0 + 0.5
+    }
+}
+
+fn reroute_general(
+    from: (f32, f32),
+    from_lead: (f32, f32),
+    to: (f32, f32),
+    to_lead: (f32, f32),
+    old: &[(f32, f32)],
+    frames: &[Rect],
+    bounds: Rect,
+) -> Vec<(f32, f32)> {
+    let finish = |mut points: Vec<(f32, f32)>| {
+        points.dedup();
+        straighten(points)
+    };
+    let clear = |points: &[(f32, f32)]| {
+        points.windows(2).all(|p| {
+            ((p[0].0 - p[1].0).abs() < 0.01 || (p[0].1 - p[1].1).abs() < 0.01)
+                && frames.iter().all(|r| !cuts_box(p[0], p[1], r))
+        })
+    };
+    let mid_x = (from_lead.0 + to_lead.0) / 2.0;
+    let mid_y = (from_lead.1 + to_lead.1) / 2.0;
+    let mut candidates = vec![
+        vec![
+            from,
+            from_lead,
+            (from_lead.0, mid_y),
+            (to_lead.0, mid_y),
+            to_lead,
+            to,
+        ],
+        vec![
+            from,
+            from_lead,
+            (mid_x, from_lead.1),
+            (mid_x, to_lead.1),
+            to_lead,
+            to,
+        ],
+    ];
+    if old.len() >= 2 && old.first() == Some(&from) && old.last() == Some(&to) {
+        candidates.push(old.to_vec());
+    }
+    candidates.retain(|p| clear(p));
+    if let Some(points) = candidates.into_iter().min_by(|a, b| {
+        let length = |p: &Vec<(f32, f32)>| {
+            p.windows(2)
+                .map(|q| (q[1].0 - q[0].0).abs() + (q[1].1 - q[0].1).abs())
+                .sum::<f32>()
+        };
+        length(a).total_cmp(&length(b))
+    }) {
+        return finish(points);
+    }
+    // Most detours are local; rebuilding a whole-model Hanan grid for every folded edge is quadratic.
+    for pad in [48.0, 144.0] {
+        let local = Rect {
+            x0: (from_lead.0.min(to_lead.0) - pad).max(bounds.x0),
+            y0: (from_lead.1.min(to_lead.1) - pad).max(bounds.y0),
+            x1: (from_lead.0.max(to_lead.0) + pad).min(bounds.x1),
+            y1: (from_lead.1.max(to_lead.1) + pad).min(bounds.y1),
+        };
+        let obstacles: Vec<_> = frames
+            .iter()
+            .copied()
+            .filter(|r| r.hits(&local, 0.0))
+            .collect();
+        if let Some(middle) = route_connector(from_lead, to_lead, &obstacles, &[], &[], local) {
+            let mut points = vec![from, from_lead];
+            points.extend(middle);
+            points.push(to_lead);
+            points.push(to);
+            if clear(&points) {
+                return finish(points);
+            }
+        }
+    }
+    let middle = route_connector(from_lead, to_lead, frames, &[], &[], bounds);
+    if let Some(middle) = middle {
+        let mut points = vec![from, from_lead];
+        points.extend(middle);
+        points.push(to_lead);
+        points.push(to);
+        return finish(points);
+    }
+    // Overlapping user-placed boxes can leave no legal route between their boundaries.
+    finish(vec![from, from_lead, (from_lead.0, to_lead.1), to_lead, to])
+}
+
+/// Whether a rectangle holds a point.
+fn contains(r: &Rect, p: (f32, f32)) -> bool {
+    p.0 >= r.x0 - 0.5 && p.0 <= r.x1 + 0.5 && p.1 >= r.y0 - 0.5 && p.1 <= r.y1 + 0.5
 }
 
 fn render_general(g: &Graph, title: &str, style: Style) -> String {
@@ -542,7 +883,7 @@ fn render_general(g: &Graph, title: &str, style: Style) -> String {
     // overstruck, which is invisible with an opaque stroke of constant width and keeps each edge
     // individually addressable — a checker reading the SVG can still tell which segments belong
     // to which relationship.
-    let mut heads: Vec<(f32, f32, Dir, Arrow, bool)> = Vec::new();
+    let mut heads: Vec<GeneralHead> = Vec::new();
     let mut labels: Vec<PendingLabel> = Vec::new();
     // Every edge's path data, held back so the whole picture can be stroked as one element.
     //
@@ -588,31 +929,33 @@ fn render_general(g: &Graph, title: &str, style: Style) -> String {
         let d = crate::jumps::path(&pts, over, crate::jumps::RADIUS);
         strokes.push(d);
 
-        if let Some(Symbol {
-            at_start,
-            points_down,
-        }) = route.head
-        {
-            let at = if at_start { pts[0] } else { last };
-            let dir = if points_down { Dir::Down } else { Dir::Up };
-            // One ownership diamond per owner, not one per edge. All the features of an owner
-            // share a bus, so N edges leave the same point and N diamonds would be N identical
-            // glyphs on top of each other — invisible, but wrong as a count, and the notation
-            // says the diamond marks the composite, not the member. Typing keeps one triangle
-            // per edge because each trunk ends at its own definition.
-            let dedupe = edge.arrow == Arrow::Composite;
-            heads.push((at.0, at.1, dir, edge.arrow, dedupe));
+        let (anchor, neighbour) = if edge.arrow == Arrow::Composite {
+            (pts[0], pts.iter().skip(1).find(|p| **p != pts[0]).copied())
+        } else {
+            (
+                last,
+                pts.iter().rev().skip(1).find(|p| **p != last).copied(),
+            )
+        };
+        if let Some(neighbour) = neighbour {
+            heads.push(GeneralHead {
+                at: anchor,
+                neighbour,
+                arrow: edge.arrow,
+            });
         }
         if let Some(text) = &edge.label {
-            // A typing trunk is a single line into a definition, so it gets one label rather
-            // than one per usage; the first edge in graph order is the one that carries it.
             let show = edge.arrow != Arrow::Typing || labelled.insert(edge.to);
             if show {
-                if let Some((lx, ly)) = route.label {
+                if let Some(segment) = pts.windows(2).max_by(|a, b| {
+                    let length =
+                        |p: &[(f32, f32)]| (p[1].0 - p[0].0).abs() + (p[1].1 - p[0].1).abs();
+                    length(a).total_cmp(&length(b))
+                }) {
                     labels.push(PendingLabel {
                         text: text.clone(),
-                        x: lx + MARGIN,
-                        y: ly,
+                        x: (segment[0].0 + segment[1].0) / 2.0,
+                        y: (segment[0].1 + segment[1].1) / 2.0 - 5.0,
                     });
                 }
             }
@@ -629,40 +972,53 @@ fn render_general(g: &Graph, title: &str, style: Style) -> String {
     }
 
     let mut drawn_diamonds: Vec<(i32, i32)> = Vec::new();
-    for (x, y, dir, arrow, dedupe) in heads {
-        if dedupe {
-            let key = ((x * 2.0).round() as i32, (y * 2.0).round() as i32);
+    for GeneralHead {
+        at,
+        neighbour,
+        arrow,
+    } in heads
+    {
+        if arrow == Arrow::Composite {
+            let key = ((at.0 * 2.0).round() as i32, (at.1 * 2.0).round() as i32);
             if drawn_diamonds.contains(&key) {
                 continue;
             }
             drawn_diamonds.push(key);
         }
-        match arrow {
-            Arrow::Composite => diamond(&mut body, x, y),
-            Arrow::Typing => {
-                hollow_triangle(&mut body, x, y, dir);
-                colon(&mut body, x, y, dir);
+        let kind = match arrow {
+            Arrow::Composite => crate::symbols::Head::FilledDiamond,
+            Arrow::Typing => crate::symbols::Head::Hollow,
+            Arrow::Satisfy | Arrow::Annotate | Arrow::Transition => crate::symbols::Head::Open,
+            Arrow::Connector => continue,
+        };
+        let head = head_at(kind, neighbour, at);
+        if arrow == Arrow::Typing {
+            body.push_str(&head.replace("fill=\"none\"", "fill=\"#FFFFFF\""));
+        } else {
+            body.push_str(&head);
+        }
+        if arrow == Arrow::Typing {
+            let dx = neighbour.0 - at.0;
+            let dy = neighbour.1 - at.1;
+            let length = dx.hypot(dy).max(0.001);
+            let (ux, uy) = (dx / length, dy / length);
+            for side in [-1.0f32, 1.0] {
+                body.push_str(&format!(
+                    "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"1.4\" fill=\"#000000\"/>",
+                    at.0 + ux * 15.0 - uy * 3.0 * side,
+                    at.1 + uy * 15.0 + ux * 3.0 * side,
+                ));
             }
-            Arrow::Annotate => {
-                let (ux, uy) = match dir {
-                    Dir::Up => (0.0, -1.0),
-                    Dir::Down => (0.0, 1.0),
-                };
-                open_head(&mut body, x, y, ux, uy);
-            }
-            Arrow::Satisfy => {
-                let (ux, uy) = match dir {
-                    Dir::Up => (0.0, -1.0),
-                    Dir::Down => (0.0, 1.0),
-                };
-                open_head(&mut body, x, y, ux, uy);
-            }
-            // The state view draws its own arrowhead; nothing here emits one.
-            Arrow::Connector | Arrow::Transition => {}
         }
     }
 
-    // Labels last, each on its own white plate, so nothing drawn earlier shows through.
+    // Labels last, so nothing drawn earlier covers them.
+    //
+    // They used to sit on a white rectangle that hid the line behind them. Drawn, that rectangle is
+    // a block of paper on the picture: a relationship label is small, but a plate under every one
+    // reads as a row of chips interrupting the lines rather than as text on them. The notation puts
+    // a label beside its line, not on a card, so the text is drawn bare and the placement search
+    // still keeps it clear of the boxes.
     //
     // Measured at twelve thousand elements, this loop is not where a render goes: a label finds a
     // free spot on its first candidate almost always, so the scan it does there is one pass over the
@@ -671,12 +1027,6 @@ fn render_general(g: &Graph, title: &str, style: Style) -> String {
     let mut taken: Vec<Rect> = Vec::new();
     for label in &labels {
         let (cx, baseline) = place_label(&label.text, label.x, label.y, &boxes, &mut taken);
-        let w = text_w(&label.text, LABEL_SIZE) + 6.0;
-        body.push_str(&format!(
-            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{w:.1}\" height=\"{LABEL_H}\" fill=\"#FFFFFF\" stroke=\"none\"/>",
-            cx - w / 2.0,
-            baseline - LABEL_H + 2.5
-        ));
         body.push_str(&format!(
             "<text x=\"{:.1}\" y=\"{baseline:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"{LABEL_SIZE}\" fill=\"#000000\">{}</text>",
             cx,
@@ -684,9 +1034,7 @@ fn render_general(g: &Graph, title: &str, style: Style) -> String {
         ));
     }
 
-    let width = lay.width + 2.0 * MARGIN;
-    let height = lay.height + MARGIN;
-    document(width, height, title, "general view", &body)
+    document(geom.width, geom.height, title, "general view", &body)
 }
 
 /// Boxes, port slots and connector polylines for the interconnection view.
@@ -1786,20 +2134,50 @@ fn render_packages(g: &Graph, title: &str) -> String {
 
     for (node, x, y, w, h) in &geo.boxes {
         let node = &g.nodes[*node];
+        // The same colour an element has in every other view. Drawing every member white made the
+        // package view unable to answer its own question at a glance: a `part def` and a
+        // `requirement def` looked identical, and a reader had to read each label to tell them
+        // apart — which is the thing colour exists to save.
+        let style = crate::style::for_stereotype(&node.stereotype);
+        let radius = if node.is_def {
+            0.0
+        } else {
+            crate::symbols::RADIUS_USAGE
+        };
         body.push_str(&format!(
-            "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{}\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>",
-            if node.is_def { 0 } else { 8 }
+            "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{radius:.1}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"/>",
+            style.body,
+            style.border,
+            crate::symbols::STROKE
         ));
+        // The header band, clipped to the box's own top corners, exactly as a box in the general
+        // view draws it.
+        if style.header != style.body {
+            let (l, r, t, b) = (x, x + w, y, y + 22.0);
+            let (tl, tr) = (x + radius, x + w - radius);
+            body.push_str(&format!(
+                "<path d=\"M{l:.1} {:.1} Q{l:.1} {t:.1} {tl:.1} {t:.1} L{tr:.1} {t:.1} Q{r:.1} {t:.1} {r:.1} {:.1} L{r:.1} {b:.1} L{l:.1} {b:.1} Z\" fill=\"{}\" stroke=\"none\"/>",
+                y + radius,
+                y + radius,
+                style.header
+            ));
+        }
         body.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"9\" fill=\"#333333\">«{}»</text>",
+            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" font-size=\"{}\" font-style=\"italic\" fill=\"{}\">«{}»</text>",
             x + w / 2.0,
             y + 13.0,
+            crate::symbols::FONT,
+            crate::symbols::TEXT_SMALL,
+            title_ink(style),
             esc(&node.stereotype)
         ));
         body.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"12\" fill=\"#000000\">{}</text>",
+            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" font-size=\"{}\" font-weight=\"700\" fill=\"{}\">{}</text>",
             x + w / 2.0,
             y + 27.0,
+            crate::symbols::FONT,
+            crate::symbols::TEXT,
+            title_ink(style),
             esc(node.label())
         ));
     }
@@ -1821,16 +2199,7 @@ pub fn render(g: &Graph, title: &str, style: Style) -> String {
     }
 }
 
-/// Boxes and edges for the state transition view, in content coordinates.
-///
-/// States sit on a circle inside their machine's frame. A circle rather than the layered layout
-/// because a state machine is a graph, not a hierarchy: transitions run backwards (`fault then
-/// off` returns to a state already placed), and a rank assignment either breaks the cycle by
-/// dropping an edge or draws it as a back edge through everything. The circle has no such
-/// preference — every state is one step from its neighbours, which is also how state machines are
-/// read.
-///
-/// Same contract as the other geometry functions: the export and the canvas both call this.
+/// Boxes, recursively nested frames, and topology-routed behavior edges.
 pub struct StateGeometry {
     /// `(node, x, y, w, h)` for every state box.
     pub boxes: Vec<(usize, f32, f32, f32, f32)>,
@@ -1842,157 +2211,13 @@ pub struct StateGeometry {
     pub height: f32,
 }
 
-const STATE_PAD: f32 = 14.0;
-const STATE_TITLE: f32 = 22.0;
-const STATE_GAP: f32 = 26.0;
-const STATE_MARGIN: f32 = 48.0;
-const STATE_MIN_W: f32 = 88.0;
-const STATE_BOX_H: f32 = 34.0;
-
-fn state_size(node: &Node) -> (f32, f32) {
-    let mut w =
-        text_w(&format!("«{}»", node.stereotype), 9.0).max(text_w(node.label(), 12.0)) + 26.0;
-    if let Some(constraint) = &node.constraint {
-        w = w.max(text_w(constraint, 9.5) + 24.0);
-    }
-    (w.max(STATE_MIN_W), STATE_BOX_H)
-}
+#[path = "behavior_layout.rs"]
+mod behavior_layout;
 
 pub fn states_geometry(g: &Graph, groups: &[Group]) -> StateGeometry {
-    let mut boxes: Vec<(usize, f32, f32, f32, f32)> = Vec::new();
-    let mut frames: Vec<(usize, f32, f32, f32, f32)> = Vec::new();
-    let mut placed: BTreeMap<usize, (f32, f32, f32, f32)> = BTreeMap::new();
-
-    let mut cursor = STATE_MARGIN;
-    let mut widest = 0.0f32;
-    for machine in groups {
-        let n = machine.members.len();
-        // Room for the widest box on the circle, on both sides.
-        let half = machine
-            .members
-            .iter()
-            .map(|&s| state_size(&g.nodes[s]).0 / 2.0)
-            .fold(0.0f32, f32::max);
-        // Adjacent boxes are a chord apart, so the radius has to clear their width: a circle
-        // sized only by the count of states drew three 88-wide boxes 89 units apart and the
-        // transitions between neighbours collapsed to a couple of pixels.
-        let half_turn = std::f32::consts::PI / (n.max(1) as f32);
-        let radius = if n < 2 {
-            0.0
-        } else {
-            ((half * 2.0 + 34.0) / (2.0 * half_turn.sin())).max(90.0)
-        };
-        let centre_x = STATE_MARGIN + radius + half + STATE_PAD;
-        let centre_y = cursor + STATE_TITLE + STATE_PAD + radius + STATE_BOX_H / 2.0;
-
-        for (i, &state) in machine.members.iter().enumerate() {
-            let (w, h) = state_size(&g.nodes[state]);
-            let angle = -std::f32::consts::FRAC_PI_2
-                + (i as f32) * std::f32::consts::TAU / (n.max(1) as f32);
-            let (x, y) = if n < 2 {
-                (centre_x - w / 2.0, centre_y - h / 2.0)
-            } else {
-                (
-                    centre_x + radius * angle.cos() - w / 2.0,
-                    centre_y + radius * angle.sin() - h / 2.0,
-                )
-            };
-            boxes.push((state, x, y, w, h));
-            placed.insert(state, (x, y, w, h));
-        }
-
-        // The frame is the bounding box of what it holds, plus the title band on top.
-        let (mut lo_x, mut lo_y) = (f32::MAX, f32::MAX);
-        let (mut hi_x, mut hi_y) = (f32::MIN, f32::MIN);
-        for &state in &machine.members {
-            if let Some(&(x, y, w, h)) = placed.get(&state) {
-                lo_x = lo_x.min(x);
-                lo_y = lo_y.min(y);
-                hi_x = hi_x.max(x + w);
-                hi_y = hi_y.max(y + h);
-            }
-        }
-        if lo_x == f32::MAX {
-            lo_x = centre_x;
-            lo_y = cursor + STATE_TITLE;
-            hi_x = centre_x + STATE_MIN_W;
-            hi_y = lo_y + STATE_BOX_H;
-        }
-        let fx = lo_x - STATE_PAD;
-        let fy = lo_y - STATE_PAD - STATE_TITLE;
-        let fw = (hi_x + STATE_PAD) - fx;
-        let fh = (hi_y + STATE_PAD) - fy;
-        frames.push((machine.node, fx, fy, fw, fh));
-        widest = widest.max(fx + fw);
-        cursor = fy + fh + STATE_GAP;
-    }
-
-    let mut edges = BTreeMap::new();
-    for (index, edge) in g.edges.iter().enumerate() {
-        let (Some(&(fx, fy, fw, fh)), Some(&(tx, ty, tw, th))) =
-            (placed.get(&edge.from), placed.get(&edge.to))
-        else {
-            continue;
-        };
-        let points = if edge.from == edge.to {
-            self_loop(fx, fy, fw, fh)
-        } else {
-            let (a, b) = (
-                (fx + fw / 2.0, fy + fh / 2.0),
-                (tx + tw / 2.0, ty + th / 2.0),
-            );
-            vec![edge_point(a, b, fw, fh), edge_point(b, a, tw, th)]
-        };
-        edges.insert(index, points);
-    }
-
-    let width = widest + STATE_MARGIN;
-    let height = cursor + STATE_MARGIN;
-    StateGeometry {
-        boxes,
-        edges,
-        frames,
-        width,
-        height,
-    }
+    behavior_layout::geometry(g, groups)
 }
 
-/// Where the line from `from` towards `to` leaves the box — the point on the border, so the
-/// arrowhead lands on the edge of the target instead of its centre.
-fn edge_point(from: (f32, f32), to: (f32, f32), w: f32, h: f32) -> (f32, f32) {
-    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
-    let mut scale = f32::MAX;
-    if dx.abs() > 0.01 {
-        scale = scale.min((w / 2.0) / dx.abs());
-    }
-    if dy.abs() > 0.01 {
-        scale = scale.min((h / 2.0) / dy.abs());
-    }
-    if !scale.is_finite() {
-        return from;
-    }
-    (from.0 + dx * scale, from.1 + dy * scale)
-}
-
-/// A transition from a state to itself leaves the top edge and comes back, which is the usual
-/// notation and needs no arc machinery.
-fn self_loop(x: f32, y: f32, w: f32, _h: f32) -> Vec<(f32, f32)> {
-    let out = 18.0;
-    let (left, right) = (x + w * 0.35, x + w * 0.65);
-    vec![
-        (left, y),
-        (left - 6.0, y - out),
-        (right + 6.0, y - out),
-        (right, y),
-    ]
-}
-
-/// The state transition view.
-///
-/// A machine is a frame with its states on a circle inside it, and every transition is one arrow
-/// from the state it leaves to the state it enters. The guard (or the trigger, when there is no
-/// guard) sits on the edge, because that is what decides whether the transition is taken and it is
-/// the first thing a reader asks about a transition.
 fn render_states(g: &Graph, title: &str) -> String {
     render_behaviour(g, title, "state transition view")
 }
@@ -2008,80 +2233,87 @@ fn render_behaviour(g: &Graph, title: &str, kind: &str) -> String {
 
     for (node, x, y, w, h) in &geo.frames {
         let node = &g.nodes[*node];
-        // A state and an action are different kinds, and the reference draws them in different
-        // colours; before this, every region in both views was the same off-white.
         let style = crate::style::for_stereotype(&node.stereotype);
+        let radius = if node.is_def {
+            0.0
+        } else {
+            crate::symbols::RADIUS_USAGE
+        };
+        let header = states::frame_title(node);
         body.push_str(&format!(
-            "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"1\"/>",
+            "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{radius:.1}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"1\"/>",
             style.body, style.border
         ));
         body.push_str(&format!(
-            "<line x1=\"{x:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#000000\" stroke-width=\"0.8\"/>",
-            y + STATE_TITLE,
-            x + w,
-            y + STATE_TITLE
+            "<line x1=\"{x:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" stroke-width=\"0.8\"/>",
+            y + header, x + w, y + header, style.border
         ));
         body.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"12\" fill=\"#000000\">{}</text>",
-            x + 8.0,
-            y + STATE_TITLE - 6.0,
-            esc(node.label())
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-family=\"{}\" font-size=\"10\" fill=\"{}\">«{}» {}</text>",
+            x + 8.0, y + 16.0, crate::symbols::FONT, crate::symbols::INK,
+            esc(&node.stereotype), esc(node.label())
         ));
+        if !node.attributes.is_empty() {
+            body.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{:.1}\" font-family=\"{}\" font-size=\"9\" font-style=\"italic\" fill=\"{}\">state actions</text>",
+                x + 8.0, y + 34.0, crate::symbols::FONT, crate::symbols::INK_MUTED
+            ));
+        }
+        for (row, text) in node.attributes.iter().enumerate() {
+            body.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{:.1}\" font-family=\"{}\" font-size=\"10\" fill=\"{}\">{}</text>",
+                x + 8.0, y + 48.0 + row as f32 * 16.0,
+                crate::symbols::FONT, crate::symbols::INK, esc(text)
+            ));
+        }
     }
 
     for (edge, points) in &geo.edges {
-        let points: Vec<String> = points
-            .iter()
-            .map(|(x, y)| format!("{x:.1},{y:.1}"))
-            .collect();
-        body.push_str(&format!(
-            "<polyline points=\"{}\" fill=\"none\" stroke=\"#000000\" stroke-width=\"1\"/>",
-            points.join(" ")
-        ));
-        // The arrowhead goes on the last segment, pointing at the target box.
-        if let Some((a, b)) = {
-            let last = &geo.edges[edge];
-            Some((last[last.len() - 2], last[last.len() - 1]))
-        } {
-            body.push_str(&arrow_head(a, b));
+        if points.len() < 2 {
+            continue;
         }
+        body.push_str(&format!(
+            "<polyline points=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"1\"/>",
+            points
+                .iter()
+                .map(|(x, y)| format!("{x:.1},{y:.1}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+            crate::symbols::INK
+        ));
+        body.push_str(&arrow_head(
+            points[points.len() - 2],
+            points[points.len() - 1],
+        ));
         if let Some(label) = g.edges.get(*edge).and_then(|e| e.label.as_ref()) {
-            let (a, b) = {
-                let last = &geo.edges[edge];
-                (last[0], last[last.len() - 1])
-            };
-            let (mx, my) = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
-            let width = text_w(label, 9.0) + 6.0;
-            body.push_str(&format!(
-                "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{width:.1}\" height=\"12\" fill=\"#FFFFFF\"/>",
-                mx - width / 2.0,
-                my - 10.0
-            ));
-            body.push_str(&format!(
-                "<text x=\"{mx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"9\" fill=\"#000000\">{}</text>",
-                my - 1.0,
-                esc(label)
-            ));
+            if let Some(segment) = points.windows(2).max_by(|a, b| {
+                let length = |p: &[(f32, f32)]| (p[1].0 - p[0].0).abs() + (p[1].1 - p[0].1).abs();
+                length(a).total_cmp(&length(b))
+            }) {
+                let (mx, my) = (
+                    (segment[0].0 + segment[1].0) / 2.0,
+                    (segment[0].1 + segment[1].1) / 2.0,
+                );
+                body.push_str(&format!(
+                    "<text x=\"{mx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"{}\" font-size=\"9\" fill=\"{}\">{}</text>",
+                    my - 5.0, crate::symbols::FONT, crate::symbols::INK, esc(label)
+                ));
+            }
         }
     }
 
-    for (node, x, y, w, h) in &geo.boxes {
-        let node = &g.nodes[*node];
-        body.push_str(&format!(
-            "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-        ));
-        body.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"9\" fill=\"#333333\">«{}»</text>",
-            x + w / 2.0,
-            y + 13.0,
-            esc(&node.stereotype)
-        ));
-        body.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"12\" fill=\"#000000\">{}</text>",
-            x + w / 2.0,
-            y + 27.0,
-            esc(node.label())
-        ));
+    for &(node, x, y, w, h) in &geo.boxes {
+        draw_frame(
+            g,
+            node,
+            x,
+            y,
+            w,
+            h,
+            &mut body,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
     }
 
     document(geo.width, geo.height, title, kind, &body)
@@ -2089,24 +2321,52 @@ fn render_behaviour(g: &Graph, title: &str, kind: &str) -> String {
 
 /// An open arrowhead at `to`, pointing along the segment from `from`.
 fn arrow_head(from: (f32, f32), to: (f32, f32)) -> String {
+    head_at(crate::symbols::Head::Open, from, to)
+}
+
+/// One of the notation's decorations at `to`, pointing along the segment from `from`.
+///
+/// The shape comes from [`crate::symbols::Head`], which holds the reference's own coordinates, and
+/// is placed by rotating the local frame so `+x` runs along the connector. Every head therefore
+/// grows backwards from the point it marks, and no call site has to know what shape it is.
+fn head_at(kind: crate::symbols::Head, from: (f32, f32), to: (f32, f32)) -> String {
     let dx = to.0 - from.0;
     let dy = to.1 - from.1;
     let length = (dx * dx + dy * dy).sqrt().max(0.001);
     let (ux, uy) = (dx / length, dy / length);
-    let len = 8.0;
-    let wing = 4.0;
+    // Across the direction of travel.
     let (px, py) = (-uy, ux);
-    format!(
-        "<path d=\"M{:.1},{:.1} L{:.1},{:.1} M{:.1},{:.1} L{:.1},{:.1}\" fill=\"none\" stroke=\"#000000\" stroke-width=\"1\"/>",
-        to.0,
-        to.1,
-        to.0 - ux * len + px * wing,
-        to.1 - uy * len + py * wing,
-        to.0,
-        to.1,
-        to.0 - ux * len - px * wing,
-        to.1 - uy * len - py * wing
-    )
+    let (subpaths, filled) = kind.outline();
+    // A point `(a, b)` in the head's own frame becomes `to - a·u - b·p`: the tip stays on `to` and
+    // the shape grows backwards along the connector.
+    let place = |(a, b): (f32, f32)| (to.0 - a * ux - b * px, to.1 - a * uy - b * py);
+    let paint = if filled {
+        format!("fill=\"{}\" stroke=\"none\"", crate::symbols::INK)
+    } else {
+        format!(
+            "fill=\"none\" stroke=\"{}\" stroke-width=\"{}\"",
+            crate::symbols::INK,
+            crate::symbols::STROKE
+        )
+    };
+    let d: String = subpaths
+        .iter()
+        .map(|points| {
+            let mut commands = String::new();
+            for (index, point) in points.iter().enumerate() {
+                let (x, y) = place(*point);
+                commands.push_str(&format!(
+                    "{}{x:.1},{y:.1} ",
+                    if index == 0 { "M" } else { "L" }
+                ));
+            }
+            if points.len() > 2 {
+                commands.push('Z');
+            }
+            commands
+        })
+        .collect();
+    format!("<path d=\"{}\" {paint}/>", d.trim())
 }
 
 /// Lifelines and messages, in content coordinates.

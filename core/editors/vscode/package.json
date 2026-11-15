@@ -1,17 +1,86 @@
 {
   "name": "sysml-v2",
   "displayName": "SysML v2",
-  "description": "SysML v2 language support: diagnostics, go to definition, find references, hover — from the sysml kernel.",
-  "version": "0.1.0",
+  "description": "Edit and check SysML v2 models, navigate declarations, and explore interactive diagrams beside your code. Includes a native model engine.",
+  "version": "0.2.1",
+  "keywords": ["sysml", "sysml-v2", "kerml", "mbse", "systems-engineering", "modeling"],
+  "homepage": "https://github.com/JasonJin2006/sysml",
+  "bugs": { "url": "https://github.com/JasonJin2006/sysml/issues" },
   "publisher": "JasonJin2006",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JasonJin2006/sysml"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Programming Languages", "Linters"],
-  "activationEvents": ["onLanguage:sysml"],
+  "categories": ["Programming Languages", "Linters", "Visualization"],
+  "activationEvents": ["onLanguage:sysml", "onCommand:sysml.openStudio", "onCommand:sysml.chooseDiagram", "onCommand:sysml.visualizeElement", "onCommand:sysml.changeDiagramDepth"],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "sysml.openStudio",
+        "title": "Open Diagram",
+        "category": "SysML",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "sysml.chooseDiagram",
+        "title": "Choose Diagram",
+        "category": "SysML",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "sysml.openTable",
+        "title": "Model Elements",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.openMatrix",
+        "title": "Requirement Satisfaction Matrix",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.visualizeElement",
+        "title": "Visualize Element",
+        "category": "SysML",
+        "icon": "$(symbol-namespace)"
+      },
+      {
+        "command": "sysml.changeDiagramDepth",
+        "title": "Change Diagram Depth",
+        "category": "SysML"
+      }
+    ],
+    "keybindings": [
+      { "command": "sysml.visualizeElement", "key": "ctrl+alt+e", "when": "editorLangId == sysml" }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "sysml.openStudio",
+          "when": "editorLangId == sysml",
+          "group": "navigation"
+        },
+        {
+          "command": "sysml.chooseDiagram",
+          "when": "editorLangId == sysml",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        { "command": "sysml.openStudio", "when": "editorLangId == sysml", "group": "2_diagram@1" },
+        { "command": "sysml.chooseDiagram", "when": "editorLangId == sysml", "group": "2_diagram@2" },
+        { "command": "sysml.openTable", "when": "editorLangId == sysml", "group": "2_diagram@3" },
+        { "command": "sysml.openMatrix", "when": "editorLangId == sysml", "group": "2_diagram@4" },
+        { "command": "sysml.visualizeElement", "when": "editorLangId == sysml", "group": "2_diagram@5" }
+      ],
+      "explorer/context": [
+        { "command": "sysml.openStudio", "when": "resourceExtname == .sysml || resourceExtname == .kerml", "group": "2_diagram@1" }
+      ]
+    },
     "languages": [
       {
         "id": "sysml",
@@ -33,20 +102,41 @@
         "sysml.server.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the sysml-lsp executable. Empty means it is found on PATH, or built beside this extension."
+          "description": "Path to the sysml-lsp executable. Empty means the copy bundled with this extension, or the build beside it."
+        },
+        "sysml.binary.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the sysml executable, which serves the canvas. Empty means the copy bundled with this extension, or the build beside it."
         },
         "sysml.trace.server": {
           "type": "string",
           "enum": ["off", "messages", "verbose"],
           "default": "off",
           "description": "Trace the messages exchanged with the language server."
+        },
+        "sysml.diagram.defaultElementRendering": {
+          "type": "string",
+          "enum": ["nested", "tree"],
+          "default": "nested",
+          "description": "Default layout offered when visualizing one element."
+        },
+        "sysml.diagram.defaultDepth": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Default number of descendant levels shown when visualizing one element."
         }
       }
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "test": "npm run compile && node --test \"test/*.test.cjs\"",
+    "watch": "tsc -watch -p ./",
+    "package": "node pack.mjs"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

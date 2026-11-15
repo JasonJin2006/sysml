@@ -24,5 +24,5 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 
-pub use lexer::{LexError, Token, TokenKind};
+pub use lexer::{is_reserved_word, keywords, lex, LexError, Token, TokenKind};
 pub use parser::{parse, ParseError, ParsedDocument};

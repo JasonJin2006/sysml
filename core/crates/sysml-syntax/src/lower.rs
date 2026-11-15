@@ -45,6 +45,25 @@ pub struct Loaded {
     /// stub can pass while its unit chain is missing, so the load has to say which one it read.
     pub library_source: LibrarySource,
     pub element_count: usize,
+    /// Declarations whose bare name is a reserved word, as `(file, span, word)`.
+    ///
+    /// Recorded here rather than derived later because the quoting is gone by the time the tree
+    /// exists: `part frame;` and `part 'frame';` produce the same stored name, and only the
+    /// second is legal. The loader sees the authored form, so it is the layer that can tell.
+    pub reserved_names: Vec<ReservedName>,
+}
+
+/// A declaration whose bare name is a reserved word.
+#[derive(Debug, Clone)]
+pub struct ReservedName {
+    /// The word that was used as a name.
+    pub word: String,
+    /// Where it was written, so an editor can mark the token and a report can name the line.
+    pub span: sysml_model::TextRange,
+    /// 1-based line the declaration starts on.
+    pub line: u32,
+    /// Index of the buffer the span belongs to.
+    pub file: usize,
 }
 
 /// Which standard library a load used.
@@ -753,6 +772,7 @@ fn lower_declaration_in(
     } else {
         Some(text_range(d.head.name.span))
     };
+    el.name_quoted = d.head.name.quoted;
     if let Some(doc_text) = &d.doc {
         el.doc = Some(doc_text.clone());
     }
@@ -1276,6 +1296,7 @@ fn lower_relationship(
         R::Alias { name, target, span } => {
             let mut el = Element::new(Kind::Alias, name.display(), span.line);
             el.name_span = Some(text_range(name.span));
+            el.name_quoted = name.quoted;
             el.to = Some(target.text.clone());
             el.type_ref = Some(target.text.clone());
             Some(el)
@@ -1374,6 +1395,7 @@ fn lower_relationship(
             let mut el = Element::new(Kind::TypeFeaturing, label, span.line);
             if let Some(name) = name {
                 el.name_span = Some(text_range(name.span));
+                el.name_quoted = name.quoted;
             }
             el.from = Some(featuring.text.clone());
             el.to = Some(featured.text.clone());
@@ -1938,6 +1960,7 @@ fn lower_statement(s: &Statement, doc: &sysml_parser::ParsedDocument) -> Option<
         Statement::Objective {
             name,
             type_ref,
+            doc: objective_doc,
             body,
             ..
         } => {
@@ -1955,6 +1978,9 @@ fn lower_statement(s: &Statement, doc: &sysml_parser::ParsedDocument) -> Option<
                 line,
             );
             el.type_ref = type_ref.as_ref().map(|t| t.text.clone());
+            // The sentence that states the objective. Without it a diagram can only say the case
+            // has one, which is the least useful thing it could say about it.
+            el.doc = objective_doc.clone();
             el.children.extend(lower_body(body, doc));
             Some(el)
         }
@@ -2028,6 +2054,7 @@ fn lower_statement(s: &Statement, doc: &sysml_parser::ParsedDocument) -> Option<
             el.clause = Some("include".to_string());
             if named {
                 el.name_span = Some(text_range(name.span));
+                el.name_quoted = name.quoted;
                 el.type_ref = Some(typed.clone());
                 el.type_refs = vec![typed];
             } else {
@@ -2128,6 +2155,7 @@ fn lower_annotation(a: &Annotation, _doc: &sysml_parser::ParsedDocument) -> Opti
             let mut el = Element::new(Kind::Comment, label, span.line);
             if let Some(name) = name {
                 el.name_span = Some(text_range(name.span));
+                el.name_quoted = name.quoted;
             }
             el.to = Some(
                 about
@@ -2556,13 +2584,42 @@ fn finish(
         assign_ids(element, &mut next);
     }
     let element_count = roots.iter().map(Element::size).sum();
+    // Project roots only. The standard library is written by the specification's own authors and
+    // is not the model under review; a reserved word in it would be a fact about the library, not
+    // about the file being edited.
+    let mut reserved_names = Vec::new();
+    for root in &roots {
+        collect_reserved_names(root, &mut reserved_names);
+    }
     Ok(Loaded {
         roots,
         library,
         library_skipped,
         library_source,
         element_count,
+        reserved_names,
     })
+}
+
+/// Every declaration in `el` whose bare name is a reserved word.
+///
+/// A quoted name is skipped: `part 'frame';` is the language's way of saying the word is a name
+/// here, and reporting it would make the correct form look like the wrong one.
+fn collect_reserved_names(el: &Element, out: &mut Vec<ReservedName>) {
+    let declares_a_name = !el.name.is_empty() && !el.name_quoted;
+    if let (true, Some(span)) = (declares_a_name, el.name_span) {
+        if sysml_parser::is_reserved_word(&el.name) {
+            out.push(ReservedName {
+                word: el.name.clone(),
+                span,
+                line: el.line,
+                file: span.file,
+            });
+        }
+    }
+    for child in &el.children {
+        collect_reserved_names(child, out);
+    }
 }
 
 fn assign_ids(el: &mut Element, next: &mut usize) {

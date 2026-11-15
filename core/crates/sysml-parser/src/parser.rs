@@ -270,11 +270,18 @@ impl Parser {
     ///
     /// Both forms may appear together (`<B> byte`), and either may be absent when the declaration
     /// is anonymous. The returned `Name` is empty when nothing was written.
+    ///
+    /// A reserved word written as a bare name is accepted here and reported by the semantic layer
+    /// instead. The parser cannot tell a declaration from a statement at this point: `bind a.b = c`
+    /// begins with a keyword that is a statement, and `part bind;` with one that is a name, and
+    /// both reach this function through the same path. The checker knows which element was
+    /// created, so it is the layer that can say "this element is named after a reserved word".
     fn name(&mut self) -> Name {
         let start = self.span_here();
         let mut short = None;
         let mut text = String::new();
         let mut end = start;
+        let mut quoted = false;
 
         if matches!(self.kind(), TokenKind::ShortName) {
             short = Some(self.cur().name_text());
@@ -282,6 +289,7 @@ impl Parser {
             self.bump();
         }
         if self.at_name() && !self.is_member_boundary() {
+            quoted = matches!(self.kind(), TokenKind::QuotedName);
             text = self.cur().name_text();
             end = self.span_here();
             self.bump();
@@ -290,6 +298,7 @@ impl Parser {
             text,
             short,
             span: start.to(end),
+            quoted,
         }
     }
 
@@ -2091,6 +2100,8 @@ impl Parser {
                             .unwrap_or(&leaf)
                             .trim_end()
                             .to_string(),
+                        // Derived from a reference, not written as a declaration name.
+                        quoted: true,
                         short: None,
                         span: target.span,
                     };
@@ -4147,6 +4158,8 @@ impl Parser {
                     name: if authored_empty {
                         Name {
                             text: "return".to_string(),
+                            // Synthesised: the declaration wrote no name at all.
+                            quoted: true,
                             short: None,
                             span: decl_start,
                         }
@@ -4178,6 +4191,8 @@ impl Parser {
                     {
                         head.name = Name {
                             text: target.text.clone(),
+                            // Taken from the redefined target, not written as a name.
+                            quoted: true,
                             short: None,
                             span: decl_start,
                         };
@@ -4565,6 +4580,7 @@ impl Parser {
             && !self.is_member_boundary()
             && !matches!(self.text(), "of" | "from" | "to" | "ordered" | "nonunique")
         {
+            name.quoted = matches!(self.kind(), TokenKind::QuotedName);
             name.text = self.cur().name_text();
             name.span = start.to(self.span_here());
             self.bump();
@@ -5628,6 +5644,7 @@ impl Parser {
         Ok(Statement::Objective {
             name,
             type_ref,
+            doc: extract_doc(&body),
             body,
             span: start.to(self.span_here()),
         })

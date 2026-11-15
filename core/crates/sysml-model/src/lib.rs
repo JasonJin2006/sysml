@@ -1733,6 +1733,12 @@ pub struct Element {
     /// exact authored range, rewriting a name means guessing which occurrence in the line is the
     /// declaration, and a guess that lands on a reference silently renames the wrong thing.
     pub name_span: Option<TextRange>,
+    /// Whether the declaration wrote its name in quotes (`part 'frame';`).
+    ///
+    /// A bare name must be an `UnrestrictedName`, which excludes every reserved word. The stored
+    /// name is unquoted either way, so this flag is what lets a check distinguish "the author
+    /// meant this word" from "the author used a word the grammar reserves".
+    pub name_quoted: bool,
     /// The value clause (`= 360 [W*h]`), operator included, for editing.
     ///
     /// This is the range a person is changing when they type a new number on the canvas, so it

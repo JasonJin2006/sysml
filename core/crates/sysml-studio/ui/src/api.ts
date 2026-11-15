@@ -1,26 +1,53 @@
 import type { CanvasDocument, SourceRange } from './types';
-import { t, type Lang } from './i18n';
+import { t, type Lang } from './i18n.ts';
 
-// Every route answers JSON. A non-OK response carries `{error}` or plain text; both are turned
-// into an Error here so a caller never has to decide which shape it got.
-export async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? undefined : {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function responseReason(text: string, status: number): string {
+  if (!text.trim() || /^\s*</.test(text)) {
+    return t('The model service returned HTTP {status}.', { status });
+  }
+  const reason = text.replace(/\s+/g, ' ').trim();
+  return reason.length > 200 ? `${reason.slice(0, 197)}…` : reason;
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(path, init);
+    text = await response.text();
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    console.warn('Model service request failed', { path, error });
+    throw new Error(t('Cannot reach the model service. Reopen the diagram and try again.'));
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error(text || `HTTP ${response.status}`);
+    if (response.ok) {
+      console.warn('Model service returned invalid JSON', { path, status: response.status, body: text });
+      throw new Error(t('The model service returned an invalid response. Reopen the diagram and try again.'));
+    }
   }
   if (!response.ok) {
-    const message = (parsed as { error?: string }).error ?? text;
-    throw new Error(message);
+    console.warn('Model service rejected a request', { path, status: response.status, body: text });
+    const error = parsed && typeof parsed === 'object' && 'error' in parsed
+      ? (parsed as { error: unknown }).error : undefined;
+    throw new Error(responseReason(typeof error === 'string' ? error : text, response.status));
   }
   return parsed as T;
+}
+
+export function api<T>(path: string, body?: unknown): Promise<T> {
+  return requestJson(path, body === undefined ? undefined : {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 /** Take back the last edit. `undone: false` means there was nothing to take back. */
@@ -33,12 +60,21 @@ export function redoEdit(): Promise<{ ok: boolean; redone: boolean }> {
   return api('/api/redo', {});
 }
 
-export function documentUrl(view: string, mode: string, only?: string | null, filter?: string): string {
+export function documentUrl(
+  view: string,
+  mode: string,
+  only?: string | null,
+  filter?: string,
+  scope?: string | null,
+  depth?: number | null,
+  layout?: 'nested' | 'tree',
+): string {
   const base = `/api/document?view=${view}&mode=${mode}`;
-  // `only` names a view the model declares; its exposes then decide what the picture contains.
   const scoped = only ? `${base}&only=${encodeURIComponent(only)}` : base;
-  // `filter` narrows to what an annotation says, spelled the way the CLI spells it.
-  return filter && filter.trim() !== '' ? `${scoped}&filter=${encodeURIComponent(filter)}` : scoped;
+  const filtered = filter && filter.trim() !== '' ? `${scoped}&filter=${encodeURIComponent(filter)}` : scoped;
+  const element = scope ? `${filtered}&scope=${encodeURIComponent(scope)}` : filtered;
+  const withDepth = depth !== undefined && depth !== null ? `${element}&depth=${depth}` : element;
+  return layout ? `${withDepth}&layout=${layout}` : withDepth;
 }
 
 export function fetchDocument(
@@ -47,11 +83,15 @@ export function fetchDocument(
   only?: string | null,
   filter?: string,
   signal?: AbortSignal,
+  scope?: string | null,
+  depth?: number | null,
+  layout?: 'nested' | 'tree',
 ): Promise<CanvasDocument> {
-  return fetch(documentUrl(view, mode, only, filter), { signal }).then(async (response) => {
-    const text = await response.text();
-    if (!response.ok) throw new Error(text);
-    return JSON.parse(text) as CanvasDocument;
+  return requestJson<CanvasDocument>(documentUrl(view, mode, only, filter, scope, depth, layout), { signal }).catch((error) => {
+    if (isAbort(error)) throw error;
+    const reason = (error instanceof Error ? error.message : String(error)).replace(/[.!?。！？]$/, '');
+    console.warn('Document request failed', { view, mode, only, filter, error });
+    throw new Error(t('Cannot update the diagram: {reason}. The previous diagram is unchanged.', { reason }));
   });
 }
 
@@ -66,9 +106,12 @@ export function fetchFingerprint(): Promise<string> {
 }
 
 export function fetchSource(key: string): Promise<SourceRange> {
-  return fetch(`/api/source?key=${encodeURIComponent(key)}`)
-    .then((r) => r.json())
-    .catch(() => ({ ok: false, error: t('Could not read the file') }));
+  return requestJson<SourceRange>(`/api/source?key=${encodeURIComponent(key)}`)
+    .catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      text: '', path: '', line: 0, endLine: 0, nameStart: 0, nameEnd: 0,
+    }));
 }
 
 export interface EditResult {

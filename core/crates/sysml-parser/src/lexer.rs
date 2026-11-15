@@ -271,6 +271,24 @@ fn is_keyword(text: &str) -> bool {
     KEYWORDS.binary_search(&text).is_ok()
 }
 
+/// Whether `text` is a word the grammar reserves.
+///
+/// Exposed so a checker can ask the same question the lexer asks, instead of keeping a second
+/// copy of the table: a name that this function accepts as a keyword is exactly a name that has
+/// to be quoted to be used as one.
+pub fn is_reserved_word(text: &str) -> bool {
+    is_keyword(text)
+}
+
+/// Every word the grammar reserves, in sorted order.
+///
+/// The completion list needs the whole table rather than a membership test, and taking it from
+/// here is what keeps the two from drifting: a word the lexer treats as a keyword is offered, and
+/// one it does not is not.
+pub fn keywords() -> &'static [&'static str] {
+    KEYWORDS
+}
+
 /// Every token in `src`, ending with exactly one [`TokenKind::Eof`].
 ///
 /// The whole buffer is tokenized in one pass. A failure does not stop the scan at the first

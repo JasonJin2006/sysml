@@ -1,37 +1,14 @@
-//! The state transition view: states as boxes, transitions as directed edges.
-//!
-//! The general view draws a state machine as three sibling boxes hanging off the machine, with no
-//! edge between them: `state off`, `state on` and `transition off then on` all become children of
-//! `Power`, so the one fact the diagram is for — `off` goes to `on` — is the one fact it does not
-//! show. This view keeps the machine as a frame, puts its states inside, and draws each transition
-//! as an edge from its source to its target.
-//!
-//! What is drawn is what the model states, and nothing else:
-//!
-//!   * the states directly inside the machine (`state off;`), plus pseudo-states (`first`);
-//!   * transitions whose two ends name those states. A transition whose ends name something else —
-//!     a state one level down, or a name that did not resolve — is left out rather than drawn to
-//!     a box that does not exist;
-//!   * a transition's guard (or trigger, when there is no guard) as the edge label.
-//!
-//! A state that itself contains states is drawn as a box here, not as a nested frame. The nested
-//! machine is a machine of its own and gets its own frame when the walk reaches it; drawing both
-//! would put a frame inside a circle of boxes, which is the layout problem this view is not
-//! solving yet.
+//! Behavior projections preserve containment, node symbols and transition clauses.
 
 use std::collections::BTreeMap;
 
 use sysml_model::{Element, Kind};
 
-use crate::graph::bare_end;
+use crate::graph::{bare_end, Arrow, Edge, Graph, View};
 
-use crate::graph::{Arrow, Edge, Graph, View};
-
-/// One group: the element drawn as a frame, and the behaviour nodes inside it.
+/// One behavior frame and its direct members, including nested frames.
 pub struct Group {
-    /// Index into `Graph::nodes`, the frame itself.
     pub node: usize,
-    /// Nodes drawn inside this frame, in model order.
     pub members: Vec<usize>,
 }
 
@@ -40,85 +17,179 @@ pub struct Behaviour {
     pub groups: Vec<Group>,
 }
 
-/// A state *usage* is a state; a `state def` is a definition of one.
-///
-/// The distinction decides what a machine is. A package that contains `state def Power` is not a
-/// state machine — it contains one — so counting a StateDef as a state made every enclosing
-/// package a frame with the machine's name inside it.
 fn is_state_node(kind: &Kind) -> bool {
-    matches!(
-        kind,
-        Kind::StateUsage | Kind::PseudoState | Kind::ControlNode
-    )
+    matches!(kind, Kind::StateUsage | Kind::ControlNode)
 }
 
 fn is_action_node(kind: &Kind) -> bool {
-    matches!(
-        kind,
-        Kind::ActionUsage | Kind::ControlNode | Kind::PseudoState
-    )
+    matches!(kind, Kind::ActionUsage | Kind::ControlNode)
 }
 
-/// State machines: states inside frames, transitions as edges.
 pub fn states(roots: &[Element]) -> Behaviour {
     project(roots, View::StateTransition, is_state_node)
 }
 
-/// Action flows: actions inside frames, successions as edges.
 pub fn actions(roots: &[Element]) -> Behaviour {
     project(roots, View::ActionFlow, is_action_node)
 }
 
+pub fn frame_title(node: &crate::graph::Node) -> f32 {
+    22.0 + if node.attributes.is_empty() {
+        0.0
+    } else {
+        14.0
+    } + node.attributes.len() as f32 * 16.0
+}
+
+fn state_rows(el: &Element) -> Vec<String> {
+    el.children
+        .iter()
+        .filter(|child| child.kind == Kind::StateAction)
+        .filter_map(|child| {
+            let role = child.clause.as_deref()?;
+            let behavior = child
+                .to
+                .as_deref()
+                .or(child.performs.as_deref())
+                .unwrap_or(&child.name);
+            let behavior = if behavior == role || behavior == "<anonymous>" {
+                ""
+            } else {
+                behavior
+            };
+            if behavior.is_empty() && child.type_ref.is_none() && child.children.is_empty() {
+                return None;
+            }
+            let mut row = role.to_string();
+            if !behavior.is_empty() {
+                row.push(' ');
+                row.push_str(behavior);
+            }
+            if let Some(ty) = &child.type_ref {
+                row.push_str(" : ");
+                row.push_str(ty);
+            }
+            Some(row)
+        })
+        .collect()
+}
+
+fn transition_label(el: &Element) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(trigger) = el.trigger_text.as_deref().filter(|text| !text.is_empty()) {
+        let mut text = trigger.to_string();
+        if let Some(via) = el.addressed.as_deref().filter(|text| !text.is_empty()) {
+            text.push_str(" via ");
+            text.push_str(via);
+        }
+        parts.push(text);
+    }
+    if let Some(guard) = el.constraint.as_deref().filter(|text| !text.is_empty()) {
+        parts.push(format!("[{guard}]"));
+    }
+    if let Some(effect) = el.effect_text.as_deref().filter(|text| !text.is_empty()) {
+        parts.push(format!("/ {effect}"));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 fn project(roots: &[Element], view: View, is_node: fn(&Kind) -> bool) -> Behaviour {
-    let mut g = Graph::new(view);
+    fn add_edge(g: &mut Graph, from: usize, to: usize, label: Option<String>) {
+        g.edges.push(Edge {
+            from,
+            to,
+            arrow: Arrow::Transition,
+            label,
+            from_port: None,
+            to_port: None,
+        });
+    }
+
+    fn fill_group(el: &Element, frame: usize, g: &mut Graph, is_node: fn(&Kind) -> bool) {
+        g.nodes[frame].is_frame = true;
+        g.nodes[frame].attributes = state_rows(el);
+        let mut node_of: BTreeMap<&str, usize> = BTreeMap::new();
+        for member in el.children.iter().filter(|child| is_node(&child.kind)) {
+            let index = g.push_element(member, &member.name, &member.name, Some(frame));
+            g.nodes[index].attributes = state_rows(member);
+            g.nodes[index].constraint = member.constraint.clone();
+            node_of.insert(member.name.as_str(), index);
+        }
+
+        for member in el.children.iter().filter(|child| is_node(&child.kind)) {
+            if member.children.iter().any(|child| is_node(&child.kind)) {
+                fill_group(member, node_of[member.name.as_str()], g, is_node);
+            }
+        }
+
+        if g.view == View::StateTransition
+            && !node_of.contains_key("done")
+            && el
+                .children
+                .iter()
+                .any(|child| child.kind == Kind::Transition && child.to.as_deref() == Some("done"))
+        {
+            let terminal = g.push_terminal(frame);
+            node_of.insert("done", terminal);
+        }
+
+        // Empty entry followed immediately by a succession denotes the state machine's entry.
+        let entry = if g.view == View::StateTransition {
+            el.children.windows(2).find_map(|pair| {
+                let (entry, succession) = (&pair[0], &pair[1]);
+                (entry.kind == Kind::StateAction
+                    && entry.name == "entry"
+                    && matches!(entry.clause.as_deref(), None | Some("entry"))
+                    && entry.to.is_none()
+                    && entry.type_ref.is_none()
+                    && entry.children.is_empty()
+                    && succession.kind == Kind::Transition
+                    && succession.name == "succession"
+                    && succession
+                        .from
+                        .as_deref()
+                        .is_some_and(|source| source == "entry" || source == el.name))
+                .then_some((entry, succession.id))
+            })
+        } else {
+            None
+        };
+        let initial = entry.map(|(entry, succession)| {
+            let node = g.push_element(entry, "entry", "entry", Some(frame));
+            g.nodes[node].symbol = crate::graph::NodeSymbol::Initial;
+            (succession, node)
+        });
+
+        for child in &el.children {
+            if child.kind == Kind::Transition {
+                let Some(to_text) = &child.to else {
+                    continue;
+                };
+                let from = match initial {
+                    Some((succession, node)) if succession == child.id => Some(node),
+                    _ => child
+                        .from
+                        .as_deref()
+                        .and_then(|text| node_of.get(bare_end(text)).copied()),
+                };
+                if let (Some(from), Some(&to)) = (from, node_of.get(bare_end(to_text))) {
+                    add_edge(g, from, to, transition_label(child));
+                }
+            }
+        }
+    }
 
     fn walk(el: &Element, g: &mut Graph, is_node: fn(&Kind) -> bool) {
-        if el.children.iter().any(|c| is_node(&c.kind)) {
+        let behavior_owner = match g.view {
+            View::StateTransition => matches!(el.kind, Kind::StateDef | Kind::StateUsage),
+            View::ActionFlow => matches!(el.kind, Kind::ActionDef | Kind::ActionUsage),
+            _ => false,
+        };
+        if el.children.iter().any(|child| {
+            is_node(&child.kind) && (child.kind != Kind::ControlNode || behavior_owner)
+        }) {
             let frame = g.push_element(el, &el.name, &el.name, None);
-            g.nodes[frame].is_frame = true;
-
-            // Names, so a succession's ends can be matched against what is actually drawn.
-            let members: Vec<&Element> = el.children.iter().filter(|c| is_node(&c.kind)).collect();
-            let mut node_of: BTreeMap<&str, usize> = BTreeMap::new();
-            for member in &members {
-                let index = g.push_element(member, &member.name, &member.name, Some(frame));
-                node_of.insert(member.name.as_str(), index);
-            }
-
-            for child in &el.children {
-                if child.kind != Kind::Transition {
-                    continue;
-                }
-                let (Some(from_text), Some(to_text)) = (&child.from, &child.to) else {
-                    continue;
-                };
-                let (Some(&from), Some(&to)) = (
-                    node_of.get(bare_end(from_text)),
-                    node_of.get(bare_end(to_text)),
-                ) else {
-                    continue;
-                };
-                g.edges.push(Edge {
-                    from,
-                    to,
-                    arrow: Arrow::Transition,
-                    // The guard is the condition the transition is taken on; a trigger without a
-                    // guard is the next most useful thing to read on the edge.
-                    label: child
-                        .constraint
-                        .clone()
-                        .or_else(|| child.trigger_text.clone()),
-                    from_port: None,
-                    to_port: None,
-                });
-            }
-            // A behaviour node that is itself a group is drawn as a box above and walked into
-            // below, so a nested machine or action definition gets its own frame.
-            for child in &el.children {
-                if is_node(&child.kind) && child.children.iter().any(|c| is_node(&c.kind)) {
-                    walk(child, g, is_node);
-                }
-            }
+            fill_group(el, frame, g, is_node);
             return;
         }
         if matches!(
@@ -132,33 +203,27 @@ fn project(roots: &[Element], view: View, is_node: fn(&Kind) -> bool) -> Behavio
         }
     }
 
+    let mut graph = Graph::new(view);
     for root in roots {
-        walk(root, &mut g, is_node);
+        walk(root, &mut graph, is_node);
     }
-
     Behaviour {
-        groups: groups_of(&g),
-        graph: g,
+        groups: groups_of(&graph),
+        graph,
     }
 }
 
-/// Rebuild the group frames from a projected graph.
-///
-/// The canvas and the export receive a `Graph`, not the projection's own structs, so the one
-/// derivation serves both and they cannot describe different trees.
+/// Rebuild groups from the same containment relation consumed by every renderer.
 pub fn groups_of(g: &Graph) -> Vec<Group> {
-    let mut groups = Vec::new();
-    for (index, node) in g.nodes.iter().enumerate() {
-        if !node.is_frame {
-            continue;
-        }
-        let members = (0..g.nodes.len())
-            .filter(|&child| g.nodes[child].parent == Some(index))
-            .collect();
-        groups.push(Group {
+    g.nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node.is_frame)
+        .map(|(index, _)| Group {
             node: index,
-            members,
-        });
-    }
-    groups
+            members: (0..g.nodes.len())
+                .filter(|&child| g.nodes[child].parent == Some(index))
+                .collect(),
+        })
+        .collect()
 }

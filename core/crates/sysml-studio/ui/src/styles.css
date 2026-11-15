@@ -1,16 +1,117 @@
+/*
+ * The palette, and the rule it follows.
+ *
+ * The interface itself is grey: `--fg`, `--dim`, `--faint`, `--line` are all steps of one scale, so
+ * nothing competes for attention. Colour is reserved for meaning, and there are exactly four:
+ *
+ *   --ok    green  a value that has a record, a verdict that passed
+ *   --warn  amber  something to look at, not yet wrong
+ *   --bad   red    an error, or a claim the model cannot back
+ *   --select blue  what is selected. Not a state — a position.
+ *
+ * Nothing else. A colour that encodes nothing is decoration, and decoration in a tool that is
+ * read all day is noise. The values are Radix's slate scale and its state scales at step 9/11, so
+ * a control drawn by Radix and one drawn here agree.
+ */
+/* One palette, two modes. The dark values are the default so a missing
+   data-theme attribute still renders a complete interface. Radix Themes owns
+   its own scale and switches with `appearance`; these variables drive the
+   hand-drawn parts of the interface and the SVG scene. */
+/* Dark Modern, the palette VS Code and Theia both ship as their default. A tool
+   that mimics them has to start here: the greys are the look, not the accents. */
+:root,
+:root[data-theme="dark"] {
+  --ui-bg: #1f1f1f;
+  --ui-topbar: #181818;
+  --ui-panel: #181818;
+  --ui-raised: #252526;
+  --ui-raised2: #2d2d30;
+  --ui-canvas: #1f1f1f;
+  --ui-border: #2b2b2b;
+  --ui-border-soft: #232323;
+  --ui-line-strong: #3c3c3c;
+  --ui-chip: #2d2d30;
+  --ui-text: #cccccc;
+  --ui-text2: #b8b8b8;
+  --ui-text3: #9d9d9d;
+  --ui-text4: #868686;
+  --ui-text5: #6e6e6e;
+  --ui-accent: #0078d4;
+  --ui-accent-text: #4daaf5;
+  --ui-accent-soft: #04395e;
+  --ui-accent-soft-text: #ffffff;
+  --ui-teal: #4ec9b0;
+  --ui-teal-soft: #17302a;
+  --ui-amber: #cca700;
+  --ui-amber-soft: #33301a;
+  --ui-red: #f14c4c;
+  --ui-red-soft: #3a1d1d;
+  --ui-red-edge: #be5a5a;
+  --ui-node-fill: #252526;
+  --ui-node-header: #2d2d30;
+  --ui-grid: #262626;
+  --ui-edge: #6e6e6e;
+  --ui-on-accent: #ffffff;
+  --ui-warn-plate: #33301a;
+}
+
+:root[data-theme="light"] {
+  --ui-bg: #ffffff;
+  --ui-topbar: #f3f3f3;
+  --ui-panel: #f8f8f8;
+  --ui-raised: #ffffff;
+  --ui-raised2: #ececec;
+  --ui-canvas: #ffffff;
+  --ui-border: #d9d9d9;
+  --ui-border-soft: #e7e7e7;
+  --ui-line-strong: #c4c4c4;
+  --ui-chip: #f0f0f0;
+  --ui-text: #222222;
+  --ui-text2: #4d4d4d;
+  --ui-text3: #666666;
+  --ui-text4: #808080;
+  --ui-text5: #9a9a9a;
+  --ui-accent: #005fb8;
+  --ui-accent-text: #005fb8;
+  --ui-accent-soft: #e7f1fb;
+  --ui-accent-soft-text: #005fb8;
+  --ui-teal: #00796b;
+  --ui-teal-soft: #e6f4f1;
+  --ui-amber: #8a6100;
+  --ui-amber-soft: #fbf3d9;
+  --ui-red: #c72e2e;
+  --ui-red-soft: #fce8e8;
+  --ui-red-edge: #dda0a0;
+  --ui-node-fill: #ffffff;
+  --ui-node-header: #f3f3f3;
+  --ui-grid: #ececec;
+  --ui-edge: #8a8a8a;
+  --ui-on-accent: #ffffff;
+  --ui-warn-plate: #fbf3d9;
+}
+
+/* Legacy names used throughout the stylesheet, now aliases of the palette. */
 :root {
-  --bg: #fbfbfa;
-  --panel: #ffffff;
-  --fg: #1c1c1a;
-  --dim: #6b6b66;
-  --faint: #9b9b95;
-  --line: #dededa;
-  --line-soft: #eeeeea;
-  --chip: #f1f1ed;
-  --ok: #2f6b4f;
-  --warn: #8a6100;
-  --bad: #a3342a;
-  --select: #1c1c1a;
+  --bg: var(--ui-bg);
+  --panel: var(--ui-panel);
+  --fg: var(--ui-text);
+  --dim: var(--ui-text3);
+  --faint: var(--ui-text4);
+  --line: var(--ui-border);
+  --line-soft: var(--ui-border-soft);
+  --chip: var(--ui-chip);
+  --ok: var(--ui-teal);
+  --warn: var(--ui-amber);
+  --bad: var(--ui-red);
+  --select: var(--ui-accent);
+  --ok-soft: var(--ui-teal-soft);
+  --warn-soft: var(--ui-amber-soft);
+  --bad-soft: var(--ui-red-soft);
+  --select-soft: var(--ui-accent-soft);
+  --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  --ui-font-size: 13px;
+  --ui-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --ui-mono-size: 12px;
 }
 
 * { box-sizing: border-box; }
@@ -25,7 +126,7 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  font: 13px/1.5 var(--ui-font);
   overflow: hidden;
 }
 
@@ -37,44 +138,94 @@ body {
 }
 
 .bar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  height: 44px;
-  padding: 0 14px;
+  height: 52px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--ui-topbar);
   flex: none;
+  z-index: 20;
 }
 
 .ident {
   display: flex;
-  align-items: baseline;
-  gap: 9px;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
 }
 
 .mark {
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.product {
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: .08em;
-  color: var(--dim);
-  text-transform: uppercase;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.ident-divider {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  background: var(--ui-line-strong);
 }
 
 .model {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--ui-text2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: var(--ui-teal-soft);
+  color: var(--ui-teal);
+  font-size: 11px;
+}
+
+.save-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.save-state.dirty {
+  background: var(--ui-amber-soft);
+  color: var(--ui-amber);
+}
+
 .controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .seg {
@@ -96,7 +247,7 @@ body {
 }
 
 .seg button + button { border-left: 1px solid var(--line); }
-.seg button.on { background: var(--chip); color: var(--fg); font-weight: 600; }
+.seg button.on { background: var(--select-soft); color: var(--fg); font-weight: 600; }
 
 /* The annotation filter sits with the view buttons because it narrows the same thing they do. */
 input.filter {
@@ -123,22 +274,142 @@ button.plain {
 
 button.plain:hover, .seg button:hover { background: var(--chip); }
 
-/* The IDE layout: navigator | canvas | inspector over a bottom panel that spans all three.
-   The canvas is the only flexible column, so it is the one that gives up width when a panel is
-   widened, which is the behaviour a drawing tool needs. */
+/* Three zones: navigation, the picture with its source beneath it, and the inspector.
+   The picture keeps the full width of the middle zone; the source editor is a
+   permanent band under it rather than a fourth equal-weight column. */
 .workspace {
   flex: 1;
   display: grid;
-  /* Navigator, canvas, source editor, inspector. The editor sits beside the picture rather than
-     under it: reading a declaration and seeing its box is one glance, and a horizontal split keeps
-     both full-width. */
-  grid-template-columns: 236px minmax(0, 1fr) minmax(0, 1fr) 330px;
-  grid-template-rows: minmax(0, 1fr) auto;
+  /* Activity bar, sidebar, divider, work area, divider, inspector. The 5px tracks
+     are the dividers: grid items the browser places, whose size is written back
+     when one is dragged. */
+  grid-template-columns: 48px var(--left-w, 300px) 5px minmax(0, 1fr) 5px var(--right-w, 300px);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
 
-.navigator {
+/* Embedded in an editor: the picture and the inspector, and nothing else.
+   The host supplies the editor, the navigator, the outline and the Problems panel, so the grid
+   loses the activity bar, the sidebar and their divider — leaving the work area and the inspector
+   on either side of one divider. The selectors match what `App` renders in this mode, so the
+   tracks do not depend on the components being hidden as well. */
+.workspace.embedded {
+  grid-template-columns: minmax(0, 1fr) 5px var(--right-w, 300px);
+  height: 100%;
+}
+.workspace.embedded > .canvas-column { grid-column: 1; }
+.workspace.embedded > .splitter-right { grid-column: 2; }
+.workspace.embedded > .inspector { grid-column: 3; }
+
+/* There is no sidebar when embedded, so the divider that resized it has nothing to sit between.
+   Left in the grid it still takes its turn as an item and lands in the column the inspector is
+   in — a 5px strip with `z-index` above the panel, lying across its right edge and swallowing
+   every click on it. `display: none` is the fix, not a moved column: a divider nobody can use
+   should not be in the layout at all. */
+.workspace.embedded > .splitter-left { display: none; }
+
+/* The source editor and the bottom strip are not rendered when embedded, so the work area is one
+   column with no rows to divide: the picture takes all of it. */
+.workspace.embedded .canvas-column {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* Radix Themes wraps the app in a `div` whose height is its content's. Standalone that is enough,
+   because the bar, the workspace and the status bar together fill the window and each one has its
+   own reason to be tall. Embedded there is one child, and a percentage height on it needs the
+   wrapper to have one first — otherwise the picture collapses to the height of its own overlays.
+
+   The children named here are the blocks that make up the page. A bare `> *` also caught the
+   toast and the busy spinner, which are `position: fixed` overlays and must keep their own size:
+   a full-height toast is the red strip that appeared down the middle of the canvas whenever a
+   request failed, and it covered the picture it was complaining about. */
+[data-sysml-embedded] .radix-themes {
+  height: 100%;
+  min-height: 0;
+}
+[data-sysml-embedded] .radix-themes > .bar,
+[data-sysml-embedded] .radix-themes > .workspace,
+[data-sysml-embedded] .radix-themes > .status {
+  height: 100%;
+}
+[data-sysml-embedded] .toast,
+[data-sysml-embedded] .busy {
+  height: auto;
+}
+
+.activity-bar {
   grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  border-right: 1px solid var(--ui-border);
+  background: var(--ui-topbar);
+}
+
+.activity {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  background: none;
+  color: var(--ui-text5);
+  cursor: pointer;
+}
+.activity:hover { color: var(--ui-text); }
+.activity.on { color: var(--ui-on-accent); }
+.activity.on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  background: var(--ui-accent);
+}
+.activity-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font: 9px/14px var(--ui-font);
+  text-align: center;
+}
+.activity-spacer { flex: 1; }
+
+.canvas-column {
+  grid-column: 4;
+  grid-row: 1;
+  display: grid;
+  /* Picture and source side by side; the divider between them is a track too. */
+  grid-template-columns: minmax(0, 1fr) 5px var(--editor-w, 376px);
+  grid-template-rows: minmax(0, 1fr) 5px auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.canvas-wrap {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.navigator {
+  grid-column: 2;
   grid-row: 1;
   display: flex;
   flex-direction: column;
@@ -175,9 +446,9 @@ button.plain:hover, .seg button:hover { background: var(--chip); }
 }
 
 .entry:hover { background: var(--chip); }
-.entry.on { background: var(--chip); font-weight: 600; }
+.entry.on { background: var(--select-soft); font-weight: 600; }
 .entry .tname { overflow: hidden; text-overflow: ellipsis; }
-.entry .tname.def { color: #000; }
+.entry .tname.def { color: var(--fg); }
 .entry:not(.on) .tname:not(.def) { color: var(--dim); }
 
 .twisty {
@@ -197,22 +468,24 @@ button.plain:hover, .seg button:hover { background: var(--chip); }
 
 .bottom {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 3;
   display: flex;
   flex-direction: column;
-  height: 236px;
+  height: var(--bottom-h, 260px);
   min-height: 0;
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
 
-.bottom.collapsed { height: auto; }
+/* The tab strip stays visible when the panel is folded, so the problems and
+   the review queue remain one click away without taking a band of height. */
+.bottom.collapsed { height: 32px; }
 
 .tabs {
   flex: none;
   display: flex;
   align-items: stretch;
-  height: 30px;
+  height: 32px;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -231,7 +504,7 @@ button.plain:hover, .seg button:hover { background: var(--chip); }
 }
 
 .tab:hover { background: var(--chip); }
-.tab.on { color: var(--fg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--fg); }
+.tab.on { color: var(--fg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--select); }
 
 .tab .count {
   font-size: 10px;
@@ -299,15 +572,16 @@ button.plain:hover, .seg button:hover { background: var(--chip); }
 .status .bad { color: var(--bad); }
 
 .viewport {
-  grid-column: 2;
-  grid-row: 1;
-  position: relative;
+  position: absolute;
+  inset: 0;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(var(--line-soft) 1px, transparent 1px) 0 0 / 100% 24px,
-    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px) 0 0 / 24px 100%;
+  background-color: var(--ui-canvas);
+  background-image:
+    linear-gradient(var(--ui-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ui-grid) 1px, transparent 1px);
+  background-size: 80px 80px;
   outline: none;
   cursor: grab;
   touch-action: none;
@@ -325,7 +599,7 @@ button.plain:hover, .seg button:hover { background: var(--chip); }
 
 .hint {
   position: absolute;
-  left: 12px;
+  right: 12px;
   bottom: 10px;
   font-size: 11px;
   color: var(--faint);
@@ -346,7 +620,7 @@ button.plain:hover, .seg button:hover { background: var(--chip); }
 }
 
 .inspector {
-  grid-column: 4;
+  grid-column: 6;
   grid-row: 1;
   min-height: 0;
   border-left: 1px solid var(--line);
@@ -423,7 +697,7 @@ h2.sheet {
 
 .field textarea { resize: vertical; min-height: 52px; }
 .field input:focus, .field select:focus, .field textarea:focus {
-  outline: 2px solid #c9c9c2;
+  outline: 2px solid var(--blue-8);
   outline-offset: 0;
 }
 
@@ -452,8 +726,8 @@ button.act {
 }
 
 button.act:hover { background: var(--chip); }
-button.act.primary { background: var(--fg); border-color: var(--fg); color: #fff; font-weight: 600; }
-button.act.primary:hover { background: #333; }
+button.act.primary { background: var(--fg); border-color: var(--fg); color: var(--panel); font-weight: 600; }
+button.act.primary:hover { background: var(--dim); border-color: var(--dim); }
 button.act:disabled { opacity: .45; cursor: default; }
 
 .section {
@@ -534,7 +808,7 @@ pre.source {
      Without one it grows to fit the file and the sections below it are pushed off-screen. */
   max-height: 320px;
   white-space: pre;
-  color: #333;
+  color: var(--dim);
 }
 
 /* In the bottom panel the source owns the whole tab, so it gets the tab's height instead of a
@@ -545,18 +819,18 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
 /* The lines belonging to the selected element. A left rule reads as "this is the thing" without a
    background fill, which at 11px would make the text harder to read than the highlight helps. */
 .srcline.on {
-  background: #fffbe6;
-  box-shadow: inset 2px 0 0 #c9a227;
+  background: var(--warn-soft);
+  box-shadow: inset 2px 0 0 var(--warn);
 }
 
 /* Syntax colour, kept to four quiet hues: a model is read line by line, and a rainbow makes the
    one line that changed harder to find, not easier. Names are left at the default colour — they are
    most of the text, and colouring them is what turns a page into confetti. */
 .tok.comment { color: var(--faint); font-style: italic; }
-.tok.string { color: #2f6b4f; }
-.tok.number { color: #8a6100; }
-.tok.keyword { color: #3b5b8a; }
-.tok.annotation { color: #6b4a8a; }
+.tok.string { color: var(--green-11); }
+.tok.number { color: var(--amber-11); }
+.tok.keyword { color: var(--blue-11); }
+.tok.annotation { color: var(--dim); }
 
 .note {
   font-size: 11px;
@@ -572,19 +846,22 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
   max-width: 70vw;
   padding: 8px 14px;
   border-radius: 5px;
-  background: #24241f;
-  color: #fbfbfa;
+  /* The palette this file owns, not a Radix scale: `--gray-12` and `--red-11` are defined inside
+     `.radix-themes` and resolve per colour scheme, so the toast's colour changed with the host
+     theme instead of with the canvas it sits on. */
+  background: var(--fg);
+  color: var(--panel);
   font-size: 12px;
   z-index: 40;
   box-shadow: 0 4px 14px rgba(0,0,0,.18);
 }
 
-.toast.bad { background: #7d2a20; }
+.toast.bad { background: var(--bad); color: #fff; }
 
 .busy {
   position: fixed;
-  top: 54px;
-  right: 346px;
+  top: 68px;
+  right: 316px;
   width: 14px;
   height: 14px;
   z-index: 30;
@@ -603,67 +880,51 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- canvas ---------------------------------------------------------- */
-
-.node-body {
-  fill: #ffffff;
-  stroke: #000000;
-  stroke-width: 1;
-}
-
-.node.selected .node-body {
-  stroke: var(--select);
-  stroke-width: 2;
-}
-
-.node-resize {
-  fill: #ffffff;
-  stroke: var(--fg);
-  stroke-width: 1;
-  opacity: 0;
-}
-
+/* Every colour comes from the active theme, so the scene does not stay white
+   when the interface is dark. export.ts mirrors these rules into the SVG. */
+.node-body { fill: var(--ui-node-fill); stroke: var(--ui-border); stroke-width: 0.5; }
+/* The fill and the stroke are set per box from `style.ts`, so the rule above is only the fallback
+   for a kind with no colour of its own. Selection overrides both, because the accent has to win
+   over a `part def`'s blue. */
+.node.selected .node-body { stroke: var(--ui-accent); stroke-width: 2; }
+.node.selected .node-band { opacity: 0.85; }
+.node-resize { fill: var(--ui-node-fill); stroke: var(--fg); stroke-width: 1; opacity: 0; }
 .node.selected .node-resize { opacity: 1; cursor: nwse-resize; }
+/* The same measurements the SVG export uses (`sysml_view::symbols`): a name at 10px bold, a
+   stereotype one step down and italic. Two pictures of one model that set their type differently
+   read as two different tools. */
+.node .label { font-size: 10px; font-weight: 700; fill: var(--ui-text); }
+.node .stereo { font-size: 9px; font-style: italic; fill: var(--ui-text3); }
+.node .row { font-size: 10px; fill: var(--ui-text2); }
+.node .constraint { font-size: 9.5px; fill: var(--ui-text3); }
+.node .port-name { font-size: 9.5px; fill: var(--ui-text2); }
 
-.node .label { font-size: 12px; fill: #000; }
-.node .stereo { font-size: 9px; fill: #333; }
-.node .row { font-size: 10px; fill: #000; }
-.node .constraint { font-size: 9.5px; fill: #333; }
-.node .port-name { font-size: 9.5px; fill: #000; }
+/* Dashed plus a red edge: dashed alone reads as provisional rather than unmet. */
+.node.unsure .node-body { stroke-dasharray: 4 3; stroke: var(--ui-red-edge); }
 
-/* A requirement nothing states it satisfies. Dashed plus a red edge, because a dashed outline
-   alone reads as "provisional" rather than "unmet", and this is the case the traceability view
-   exists to make obvious. */
-.node.unsure .node-body { stroke-dasharray: 4 3; stroke: #A03030; }
-
-/* A package in the package view. The fill is a shade off white so a nested frame reads as inside
-   its parent rather than as a stack of identical rectangles. */
-.frame-body { fill: #fcfcfa; stroke: #000; stroke-width: 1; }
-.frame-rule { stroke: #000; stroke-width: 0.8; }
-.frame-title { font-size: 12px; fill: #000; }
+.frame-body { fill: var(--ui-canvas); stroke: var(--ui-border); stroke-width: 1; }
+.frame-rule { stroke: var(--ui-border); stroke-width: 0.8; }
+.frame-title { font-size: 12px; fill: var(--ui-text); }
 .frame-hit { fill: transparent; cursor: pointer; }
-.frame.selected .frame-body { stroke: var(--select); stroke-width: 2; }
+.frame.selected .frame-body { stroke: var(--ui-accent); stroke-width: 2; }
 
-.edge { fill: none; stroke: #000; stroke-width: 1; pointer-events: none; }
+.edge { fill: none; stroke: var(--ui-edge); stroke-width: 1; pointer-events: none; }
 .edge.hit { stroke: transparent; stroke-width: 10; fill: none; cursor: pointer; pointer-events: stroke; }
 .edge.satisfy { stroke-width: 1; }
-/* An annotation says what was written *about* an element rather than what the element is made
-   of, so it is dashed — the same distinction the SVG export draws. */
 .edge.annotate { stroke-width: 1; stroke-dasharray: 5 3; }
 .edge.connector { stroke-width: 2.6; }
-.edge-label { font-size: 9px; fill: #000; pointer-events: none; }
-.edge-label-plate { fill: #fff; pointer-events: none; }
+.edge-label { font-size: 9px; fill: var(--ui-text3); pointer-events: none; }
 
 /* ---- verdicts --------------------------------------------------------- */
 
-/* A filled badge is a current answer; a hollow one is a record whose model has moved. The
-   difference is the whole point, so it is carried by fill, not by colour alone. */
+/* A filled badge is a current answer; a hollow one is a record whose model has moved. */
 .judge circle { stroke-width: 1; }
-.judge text { font-size: 9px; fill: #fff; font-weight: 600; pointer-events: none; }
+.judge text { font-size: 9px; fill: var(--ui-on-accent); font-weight: 600; pointer-events: none; }
 .judge.pass circle { fill: var(--ok); stroke: var(--ok); }
 .judge.fail circle { fill: var(--bad); stroke: var(--bad); }
 .judge.inconclusive circle { fill: var(--warn); stroke: var(--warn); }
 .judge.error circle { fill: var(--bad); stroke: var(--bad); }
-.judge.stale circle { fill: #ffffff; stroke-dasharray: 2 2; }
+.judge.stale circle { fill: var(--ui-node-fill); stroke-dasharray: 2 2; }
 .judge.stale text { fill: var(--fg); }
 .judge.stale.pass circle { stroke: var(--ok); }
 .judge.stale.fail circle, .judge.stale.error circle { stroke: var(--bad); }
@@ -675,17 +936,17 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
    Each is drawn in the accent that says what it is, never by recolouring the box itself — the
    box's own stroke means selection. */
 .mark-new { fill: none; stroke: var(--ok); stroke-width: 1.5; stroke-dasharray: 4 3; }
-.mark-ghost rect { fill: #ffffff; stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 3; opacity: .75; }
+.mark-ghost rect { fill: var(--ui-node-fill); stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 3; opacity: .75; }
 .mark-ghost .ghost-label {
   font-size: 12px;
   fill: var(--faint);
   text-decoration: line-through;
 }
-.mark-change rect { fill: #fdf6e3; stroke: var(--warn); stroke-width: 0.8; }
+.mark-change rect { fill: var(--ui-warn-plate); stroke: var(--warn); stroke-width: 0.8; }
 .mark-change text {
   font-size: 10px;
   fill: var(--warn);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--ui-mono);
   pointer-events: none;
 }
 
@@ -757,11 +1018,11 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
   align-items: center;
   gap: 10px;
   flex: none;
-  height: 26px;
-  padding: 0 14px;
+  height: 36px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
-  font-size: 11.5px;
+  background: var(--ui-panel);
+  font-size: 12px;
   color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
@@ -820,7 +1081,7 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
   color: var(--fg);
 }
 
-/* The source editor: Monaco in the third column, under its own header. */
+/* The source editor: a permanent column beside the picture. */
 .editor {
   grid-column: 3;
   grid-row: 1;
@@ -829,7 +1090,7 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--line);
-  background: #fff;
+  background: var(--panel);
 }
 
 .editor-head {
@@ -853,7 +1114,7 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
 }
 
 .editor-dirty {
-  color: #c77a1c;
+  color: var(--warn);
   font-size: 10px;
 }
 
@@ -888,7 +1149,7 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
 
 .palette {
   width: min(620px, 90vw);
-  background: #fff;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
   box-shadow: 0 12px 32px rgba(20, 30, 50, 0.22);
@@ -924,11 +1185,11 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
 }
 
 .palette-item.on {
-  background: var(--chip);
+  background: var(--select-soft);
 }
 
 .palette-item.off {
-  color: #b0b6bd;
+  color: var(--faint);
   cursor: default;
 }
 
@@ -970,7 +1231,7 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  background: #fff;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 5px;
   box-shadow: 0 8px 22px rgba(20, 30, 50, 0.16);
@@ -997,13 +1258,13 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
 }
 
 .menu-item.off {
-  color: #b0b6bd;
+  color: var(--faint);
   cursor: default;
 }
 
 .menu-tick {
   width: 12px;
-  color: #2f7d32;
+  color: var(--green-11);
   font-size: 11px;
 }
 
@@ -1016,3 +1277,905 @@ pre.source.tall { flex: 1; max-height: none; min-height: 0; }
   font-size: 10.5px;
   font-family: ui-monospace, Consolas, monospace;
 }
+
+/* The navigator's two modes, and the file list. */
+.seg.small button {
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.file-group + .file-group {
+  margin-top: 4px;
+}
+
+.file-dir {
+  padding: 3px 8px;
+  font-size: 10.5px;
+  color: var(--dim);
+  text-transform: none;
+}
+
+.entry.file {
+  cursor: pointer;
+}
+
+/* The problems tab's filter row: three severity buttons and the rule picker. */
+.problem-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.problem-filter .plain.on {
+  background: var(--select-soft);
+  font-weight: 600;
+}
+
+.problem-code {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--fg);
+  max-width: 180px;
+}
+
+/* ---- new layout -------------------------------------------------------
+   These rules come last on purpose: they restyle the existing controls for
+   the two-theme layout without editing the components that render them. */
+
+.bar-spacer { flex: 1; }
+
+.bar-button,
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ui-raised);
+  color: var(--ui-text3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bar-button:hover,
+.tool-btn:hover { background: var(--ui-raised2); color: var(--fg); }
+.tool-btn.primary-export {
+  background: var(--ui-raised2);
+  border-color: var(--ui-line-strong);
+  color: var(--fg);
+  font-weight: 500;
+}
+.tool-btn.icon { width: 28px; padding: 0; font-size: 14px; line-height: 1; }
+
+.command-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 248px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ui-raised);
+  color: var(--ui-text4);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.command-search > span:first-of-type { flex: 1; }
+.command-search kbd {
+  font: 10px/1 var(--ui-mono);
+  padding: 4px 5px;
+  border-radius: 4px;
+  background: var(--ui-chip);
+  color: var(--ui-text4);
+}
+
+.theme-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ui-raised);
+}
+.theme-option {
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ui-text4);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.theme-option.on {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-soft-text);
+  font-weight: 600;
+}
+
+.seg {
+  border-color: var(--line);
+  border-radius: 6px;
+  background: var(--ui-raised);
+}
+.seg button {
+  background: none;
+  color: var(--ui-text4);
+  font-family: var(--ui-mono);
+}
+.seg button.on {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-soft-text);
+  font-weight: 600;
+}
+
+/* ---- navigator -------------------------------------------------------- */
+.panel-head {
+  height: 40px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg);
+}
+.panel-head .grow { flex: 1; }
+
+.nav-search-wrap { padding: 6px 12px; flex: none; }
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ui-raised);
+  color: var(--ui-text4);
+  font-size: 12px;
+}
+
+.nav-group-title {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-text4);
+}
+.nav-divider { height: 1px; background: var(--ui-border-soft); flex: none; }
+
+.view-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 14px;
+  color: var(--ui-text3);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.view-entry:hover { background: var(--ui-raised); }
+.view-entry.on {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-soft-text);
+  font-weight: 500;
+}
+.view-key { font: 10px/1 var(--ui-mono); color: var(--ui-text4); }
+.view-entry.on .view-key { color: var(--ui-accent-text); }
+
+.entry { height: 28px; font-size: 12px; gap: 2px; }
+.entry.on { background: var(--ui-accent-soft); font-weight: 600; }
+.entry.on .tname { color: var(--ui-accent-soft-text); }
+.entry .tname.def { color: var(--fg); }
+.entry:not(.on) .tname:not(.def) { color: var(--ui-text3); }
+
+/* The camera keeps its corner and loses its card. Over a picture inside an editor, a rounded
+   shadowed box reads as a widget from another application; the buttons on their own read as part
+   of the canvas. The inset matches the canvas card's own padding so it sits on the picture's
+   corner rather than floating free. */
+[data-sysml-embedded] .zoom-pill {
+  left: 12px;
+  bottom: 12px;
+  height: 26px;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  box-shadow: none;
+}
+[data-sysml-embedded] .zoom-pill button {
+  border-radius: 2px;
+  height: 22px;
+  width: 22px;
+  font-size: 13px;
+}
+[data-sysml-embedded] .zoom-pill button:hover { background: var(--ui-chip); }
+[data-sysml-embedded] .zoom-pill span { padding: 0 4px; font-size: 10px; }
+
+/* The hint over the picture is a sentence from the studio's own vocabulary. VS Code does not
+   explain its own gestures in the middle of an editor, and a permanent line of text over the
+   picture is the loudest thing in the panel. */
+[data-sysml-embedded] .hint { display: none; }
+
+/* One step quieter than the standalone studio: the panel is one part of a window, not the whole
+   of it, so its type matches the editor's own chrome. */
+[data-sysml-embedded] {
+  --ui-font: var(--vscode-font-family, "Segoe UI", system-ui, sans-serif);
+}
+[data-sysml-embedded] body {
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size, 12px);
+}
+
+/* ---- controls, as the editor draws them ---------------------------------
+   A field in the inspector sat next to VS Code's own inputs and looked almost right, which is
+   worse than looking different: the border was the panel's, the radius was 4px where VS Code uses
+   2px, and the focus ring was a 2px outline where VS Code draws a 1px border in the focus colour.
+
+   These rules are the editor's own numbers, taken from its variables rather than guessed, so a
+   theme that recolours its inputs recolours these. */
+[data-sysml-embedded] .field input,
+[data-sysml-embedded] .field select,
+[data-sysml-embedded] .field textarea,
+[data-sysml-embedded] .qact input,
+[data-sysml-embedded] .qact select,
+/* A control in a `.row` is not inside a `.field`: the inspector's "add a member" form builds one
+   from a bare select and input, and those were left with the browser's own 25px transparent box. */
+[data-sysml-embedded] .row > input,
+[data-sysml-embedded] .row > select,
+[data-sysml-embedded] .inspector select,
+[data-sysml-embedded] .inspector input[type="text"] {
+  border: 1px solid var(--ui-input-border, #3c3c3c);
+  border-radius: 2px;
+  background: var(--ui-input-bg, #313131);
+  color: var(--ui-input-fg, #cccccc);
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size, 12px);
+  /* VS Code's own inputs are 22px in a sidebar and 26px in a dialog; the inspector is a sidebar. */
+  min-height: 22px;
+  padding: 2px 6px;
+}
+[data-sysml-embedded] .field input::placeholder,
+[data-sysml-embedded] .qact input::placeholder,
+[data-sysml-embedded] .row > input::placeholder,
+[data-sysml-embedded] .inspector input::placeholder {
+  color: var(--ui-placeholder, #9d9d9d);
+  opacity: 1;
+}
+/* Focus is a border, not an outline: VS Code thickens the input's own border by one pixel in the
+   focus colour, and the caret is the only other thing that moves. */
+[data-sysml-embedded] .field input:focus,
+[data-sysml-embedded] .field select:focus,
+[data-sysml-embedded] .field textarea:focus,
+[data-sysml-embedded] .qact input:focus,
+[data-sysml-embedded] .qact select:focus,
+[data-sysml-embedded] .row > input:focus,
+[data-sysml-embedded] .row > select:focus,
+[data-sysml-embedded] .inspector select:focus,
+[data-sysml-embedded] .inspector input[type="text"]:focus {
+  outline: none;
+  border-color: var(--ui-accent, #0078d4);
+}
+/* A native select draws its own arrow with the platform's colours, which is a grey triangle in a
+   dark field on Windows. The editor's dropdowns draw the arrow in the foreground colour, so this
+   one does too. */
+[data-sysml-embedded] .field select,
+[data-sysml-embedded] .qact select,
+[data-sysml-embedded] .row > select,
+[data-sysml-embedded] .inspector select {
+  appearance: none;
+  padding-right: 20px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 11px) 9px, calc(100% - 7px) 9px;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+/* A button is a filled control in VS Code, not an outlined one. The inspector's `act` buttons were
+   a bordered box on the panel colour, which reads as a third kind of surface. */
+[data-sysml-embedded] button.act {
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: var(--ui-button-secondary, #3a3d41);
+  color: var(--ui-button-secondary-text, #cccccc);
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size, 12px);
+  min-height: 22px;
+  padding: 2px 10px;
+}
+[data-sysml-embedded] button.act:hover { background: var(--ui-raised2, #2d2d30); }
+[data-sysml-embedded] button.act.primary {
+  background: var(--ui-button-bg, #0078d4);
+  border-color: var(--ui-button-bg, #0078d4);
+  color: var(--ui-button-fg, #ffffff);
+  font-weight: 400;
+}
+[data-sysml-embedded] button.act.primary:hover { background: var(--ui-button-hover, #026ec1); }
+[data-sysml-embedded] button.act:disabled { opacity: 0.4; }
+
+/* The panel's own small buttons: `save`, collapse, the menu trigger. */
+[data-sysml-embedded] button.plain,
+[data-sysml-embedded] .menu-button {
+  border-radius: 2px;
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size, 12px);
+}
+[data-sysml-embedded] button.plain:hover,
+[data-sysml-embedded] .menu-button:hover,
+[data-sysml-embedded] .menu-button.on {
+  background: var(--ui-hover-bg, #2a2d2e);
+  color: var(--ui-hover-fg, #cccccc);
+}
+
+/* ---- menus ------------------------------------------------------------
+   The dropdown was a rounded card with a large soft shadow. VS Code's menus are square, one pixel
+   of border, a hard shadow, and their hover row is the selection colour — not a translucent grey
+   wash. */
+[data-sysml-embedded] .menu-list {
+  min-width: 200px;
+  padding: 4px 0;
+  border: 1px solid var(--ui-menu-border, #454545);
+  border-radius: 0;
+  background: var(--ui-menu-bg, #252526);
+  color: var(--ui-menu-fg, #cccccc);
+  box-shadow: 0 2px 8px var(--ui-shadow, #000000);
+}
+[data-sysml-embedded] .menu-item {
+  padding: 4px 12px;
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size, 12px);
+  border-radius: 0;
+}
+[data-sysml-embedded] .menu-item:hover {
+  background: var(--ui-menu-select-bg, #0078d4);
+  color: var(--ui-menu-select-fg, #ffffff);
+}
+[data-sysml-embedded] .menu-item.group {
+  margin-top: 4px;
+  border-top: 1px solid var(--ui-menu-separator, #454545);
+  padding-top: 5px;
+}
+[data-sysml-embedded] .menu-item.off { color: var(--ui-text4); }
+/* The shortcut keeps its colour on the selected row: VS Code shows it dimmed even while the row is
+   blue, and a row whose second word turned white reads as one long label. */
+[data-sysml-embedded] .menu-item:hover .menu-keys { color: inherit; opacity: 0.8; }
+
+/* ---- Radix components the inspector uses ------------------------------
+   Radix Themes ships its own scale and sizing, so a Select in the value panel drew at 32px next to
+   a 22px input. Matching the editor's control height is the whole fix; the colours come from the
+   palette above through Radix's `--gray-*` aliases, which it re-derives from `appearance`. */
+[data-sysml-embedded] .rt-SelectTrigger,
+[data-sysml-embedded] .rt-Button,
+[data-sysml-embedded] .rt-TextFieldRoot {
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size, 12px);
+  min-height: 22px;
+  height: 22px;
+  border-radius: 2px;
+}
+[data-sysml-embedded] .rt-SelectTrigger {
+  background: var(--ui-dropdown-bg, #313131);
+  color: var(--ui-dropdown-fg, #cccccc);
+  box-shadow: inset 0 0 0 1px var(--ui-dropdown-border, #3c3c3c);
+}
+[data-sysml-embedded] .rt-Badge {
+  font-family: var(--ui-font);
+  border-radius: 2px;
+  font-weight: 400;
+}
+[data-sysml-embedded] .rt-Heading,
+[data-sysml-embedded] .rt-Text {
+  font-family: var(--ui-font);
+}
+
+/* Radix Themes sets its own type scale — 15.2px for a container, 11.4px for `size="1"` — and those
+   numbers have nothing to do with an editor's chrome. The whole embedded tree is put on the
+   editor's type here, once, so a component added later does not have to remember to ask. */
+[data-sysml-embedded],
+[data-sysml-embedded] .radix-themes,
+[data-sysml-embedded] .rt-Box,
+[data-sysml-embedded] .rt-Flex,
+[data-sysml-embedded] .rt-Grid,
+[data-sysml-embedded] .rt-Text,
+[data-sysml-embedded] .rt-Card,
+[data-sysml-embedded] .rt-Heading,
+[data-sysml-embedded] .rt-Separator,
+[data-sysml-embedded] .field,
+[data-sysml-embedded] .line {
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size, 12px);
+}
+/* `rt-Heading` and `rt-Text` set their size with a class, so the override needs the same
+   specificity. The heading is a name in a panel, not a document title: 13px, weight 600. */
+[data-sysml-embedded] .rt-Heading,
+[data-sysml-embedded] h1.rt-Heading,
+[data-sysml-embedded] h2.rt-Heading,
+[data-sysml-embedded] h3.rt-Heading {
+  font-size: var(--ui-font-size, 12px);
+  font-weight: 600;
+  line-height: 1.4;
+}
+[data-sysml-embedded] .rt-Text { font-size: var(--ui-font-size, 12px); line-height: 1.45; }
+[data-sysml-embedded] [class*="rt-r-size-1"],
+[data-sysml-embedded] .rt-Text.rt-r-size-1 {
+  font-size: calc(var(--ui-font-size, 12px) - 1px);
+}
+/* Radix draws its separators in its own grey; the panel's is the editor's. */
+[data-sysml-embedded] .rt-Separator {
+  background-color: var(--ui-border, #2b2b2b);
+}
+
+/* Section headings are the editor's uppercase panel labels: 11px, letterspaced, on the separator
+   line rather than floating above a gap. */
+[data-sysml-embedded] .section {
+  margin: 0;
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--ui-border, #2b2b2b);
+}
+[data-sysml-embedded] .section > h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ui-text3, #9d9d9d);
+}
+[data-sysml-embedded] .line {
+  padding: 3px 0;
+  border-bottom: 0;
+  font-size: var(--ui-font-size, 12px);
+}
+[data-sysml-embedded] .line .v.mono,
+[data-sysml-embedded] .mono {
+  font-family: var(--ui-mono);
+  font-size: var(--ui-mono-size, 12px);
+}
+[data-sysml-embedded] .note {
+  font-size: calc(var(--ui-font-size, 12px) - 1px);
+  color: var(--ui-text3, #9d9d9d);
+}
+/* The inspector is a panel, so it takes the panel colours and a one-pixel separator rather than a
+   border box of its own. */
+[data-sysml-embedded] .inspector {
+  padding: 0;
+  background: var(--ui-panel, #181818);
+  border-left: 1px solid var(--ui-border, #2b2b2b);
+}
+/* Each group in the panel is a box with its own rhythm: 10px above the heading, 8px below the
+   last row, and a separator drawn by its neighbour's top edge. Two pixels of `padding-bottom` made
+   every group sit on the next one's heading. */
+[data-sysml-embedded] .inspector > .rt-Box,
+[data-sysml-embedded] .inspector > div { padding: 8px 12px; }
+[data-sysml-embedded] .inspector > .rt-Box + .rt-Box,
+[data-sysml-embedded] .inspector > div + div { border-top: 1px solid var(--ui-border, #2b2b2b); }
+[data-sysml-embedded] .inspector .rt-Card {
+  border-radius: 2px;
+  box-shadow: none;
+  border: 1px solid var(--ui-border, #2b2b2b);
+}
+
+.zoom-pill {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ui-raised);
+}
+.zoom-pill button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ui-text3);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.zoom-pill button:hover { background: var(--ui-raised2); }
+.zoom-pill span { font: 11px/1 var(--ui-mono); color: var(--ui-text2); padding: 0 2px; }
+
+
+.diagram-options { position: absolute; right: 12px; bottom: 12px; z-index: 4; }
+.diagram-options-toggle { border: 1px solid var(--line); border-radius: 5px; padding: 5px 9px; color: var(--fg); background: var(--panel); font: inherit; cursor: pointer; }
+.diagram-options-toggle:hover { border-color: var(--ui-accent); }
+.diagram-options-panel { position: absolute; right: 0; bottom: calc(100% + 8px); display: grid; gap: 10px; width: 250px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 6px 22px rgba(0,0,0,.22); }
+.diagram-options-panel label { display: grid; gap: 4px; color: var(--dim); font-size: 11px; }
+.diagram-options-panel select { min-height: 26px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--fg); background: var(--ui-bg); font: inherit; }
+.diagram-options-panel p { margin: 0; color: var(--dim); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+
+/* ---- source editor and bottom strip ------------------------------------ */
+.editor-head {
+  height: 36px;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--ui-panel);
+  font-size: 11px;
+}
+.source-tab {
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-soft-text);
+  font: 11px/1.4 var(--ui-mono);
+}
+.editor-head-tabs { display: flex; align-items: center; gap: 14px; }
+.editor-head-tabs button {
+  border: 0;
+  background: none;
+  color: var(--ui-text3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.editor-head-tabs button:hover { color: var(--fg); }
+.editor-head-tabs .count-warn { color: var(--ui-amber); }
+
+.bottom .rt-TabsList {
+  height: 32px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.bottom .rt-TabsTrigger { font-size: 12px; }
+.bottom.collapsed .rt-TabsList { border-bottom: 0; }
+
+.status {
+  height: 28px;
+  background: var(--ui-topbar);
+  font-size: 11px;
+}
+
+.stage .badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-soft-text);
+  font: 11px/1 var(--ui-mono);
+}
+.stage .name { font-size: 12px; color: var(--fg); }
+
+pre.source { font-family: var(--ui-mono); }
+.row-line .mono,
+.status .path,
+.palette-keys,
+.menu-keys { font-family: var(--ui-mono); }
+
+.nav-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+.nav-search input::placeholder { color: var(--ui-text4); }
+
+.zoom-pill button:last-child {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+/* Units and dimensions are separated by space, not a separator character. */
+.unit-dimension { margin-left: 14px; color: var(--dim); }
+
+.bottom { position: relative; }
+.bottom .collapse {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  z-index: 1;
+  height: 26px;
+  border-radius: 4px;
+}
+.bottom .rt-TabsList { padding-right: 42px; }
+
+/* ---- stage bar -------------------------------------------------------- */
+/* One readable line, with the sentence, the targets and the command behind a
+   disclosure. Shown together they were a wall of unreadable text. */
+.stage-key { flex: none; font-size: 11px; color: var(--ui-text4); }
+.stage .waiting { overflow: hidden; text-overflow: ellipsis; }
+
+.stage-toggle,
+.stage-command {
+  flex: none;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: none;
+  color: var(--ui-text3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stage-toggle:hover,
+.stage-command:hover { background: var(--ui-raised2); color: var(--fg); }
+.stage-command {
+  background: var(--ui-raised2);
+  border-color: var(--ui-line-strong);
+  color: var(--fg);
+}
+
+.stage-detail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ui-panel);
+}
+.stage-detail-line {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ui-text2);
+}
+.stage-targets { display: flex; flex-wrap: wrap; gap: 6px; }
+.stage-targets .target {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: none;
+  color: var(--ui-text3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.stage-targets .target:hover { border-color: var(--ui-accent); color: var(--ui-accent-text); }
+.stage-detail-command {
+  display: block;
+  padding: 8px;
+  border-radius: 5px;
+  background: var(--ui-bg);
+  color: var(--ui-text3);
+  font: 11px/1.5 var(--ui-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---- dividers --------------------------------------------------------- */
+/* A 5px track with a 1px line in the middle: invisible until the pointer is
+   on it, which is what a drawing tool's own dividers do. */
+.splitter {
+  position: relative;
+  z-index: 3;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+}
+.splitter.vertical { cursor: col-resize; }
+.splitter.horizontal { cursor: row-resize; }
+.splitter::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  transition: background-color .12s ease;
+}
+.splitter.vertical::after { top: 0; bottom: 0; left: 2px; width: 1px; }
+.splitter.horizontal::after { top: 2px; left: 0; right: 0; height: 1px; }
+.splitter:hover::after,
+.splitter:active::after { background: var(--ui-accent); }
+
+/* A 5px track is hard to hit with a mouse, and a horizontal one is worse than a
+   vertical one: the vertical divider runs the height of the window, the
+   horizontal one is a thin line between two clickable panels. The pseudo
+   element keeps the visible track 5px and gives the pointer a larger target. */
+.splitter.vertical::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
+}
+.splitter.horizontal::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+}
+
+.workspace > .splitter-left { grid-column: 3; grid-row: 1; }
+.workspace > .splitter-right { grid-column: 5; grid-row: 1; }
+.canvas-column > .splitter-editor { grid-column: 2; grid-row: 1; }
+.canvas-column > .splitter-bottom { grid-column: 1 / -1; grid-row: 2; }
+
+/* ---- stage pill and its popover --------------------------------------- */
+.stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  height: 24px;
+  margin-left: 4px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ui-raised);
+  color: var(--ui-text3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stage-pill:hover { border-color: var(--ui-accent); color: var(--fg); }
+.stage-pill-badge { font: 10px/1 var(--ui-mono); font-weight: 600; color: var(--ui-accent-soft-text); }
+.stage-pill.waiting .stage-pill-badge { color: var(--ui-amber); }
+.stage-pill-count {
+  min-width: 16px;
+  padding: 1px 4px;
+  border-radius: 8px;
+  background: var(--ui-amber-soft);
+  color: var(--ui-amber);
+  font: 10px/1 var(--ui-mono);
+  text-align: center;
+}
+
+.stage-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 20px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(680px, 62vw);
+  max-height: 52vh;
+  overflow: auto;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ui-panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+.stage-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stage-pop-title { font-size: 12px; font-weight: 600; color: var(--fg); }
+.stage-pop-close {
+  border: 0;
+  background: none;
+  color: var(--ui-text4);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.stage-pop-close:hover { color: var(--fg); }
+
+/* ---- density -----------------------------------------------------------
+   VS Code's own measurements: a 35px title bar, 48px activity icons, 22px list
+   rows, 11px uppercase section headers, a 22px status bar. The earlier layout
+   used 28px rows and 40px headers, which reads as a web page pretending to be
+   a tool. */
+.bar { height: 35px; padding: 0 12px; gap: 12px; }
+.ident { gap: 8px; }
+.mark { width: 20px; height: 20px; border-radius: 4px; font-size: 11px; }
+.product { font-size: 12.5px; font-weight: 500; }
+.ident-divider { height: 14px; }
+.model { font-size: 12px; }
+.save-state { height: 18px; padding: 0 6px; font-size: 10.5px; }
+.controls { gap: 8px; }
+.command-search { width: 220px; height: 24px; padding: 0 6px 0 8px; border-radius: 4px; font-size: 12px; }
+.command-search svg { width: 13px; height: 13px; }
+.command-search kbd { padding: 2px 4px; font-size: 9px; }
+.theme-switch { padding: 2px; border-radius: 4px; }
+.theme-option { height: 18px; padding: 0 7px; font-size: 10.5px; }
+.stage-pill { height: 20px; padding: 0 7px; gap: 5px; border-radius: 10px; font-size: 10.5px; }
+.stage-pill-count { min-width: 14px; padding: 0 3px; border-radius: 7px; font-size: 9px; }
+.tool-btn { height: 22px; padding: 0 8px; gap: 4px; border-radius: 4px; font-size: 11.5px; }
+.tool-btn.icon { width: 22px; height: 22px; padding: 0; }
+.tool-btn svg { width: 15px; height: 15px; }
+.seg { border-radius: 4px; }
+.seg button { padding: 2px 7px; font-size: 11px; }
+
+.activity svg { width: 22px; height: 22px; }
+
+.panel-head {
+  height: 35px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ui-text3);
+}
+.nav-search-wrap { padding: 4px 8px; }
+.nav-search { height: 24px; padding: 0 6px; gap: 6px; border-radius: 4px; }
+.nav-search input { font-size: 12px; }
+.nav-group-title {
+  height: 22px;
+  padding: 0 10px;
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.view-entry { height: 22px; padding: 0 10px; gap: 8px; font-size: 12px; }
+.view-key { font-size: 9.5px; }
+.entry { height: 22px; font-size: 12px; }
+.twisty { font-size: 8px; }
+.file-icon {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ui-text4);
+}
+.file-icon svg { width: 13px; height: 13px; }
+.entry.on .file-icon { color: var(--ui-accent-text); }
+
+.editor-head { height: 35px; padding: 0 10px; }
+.editor-path { font-size: 11px; }
+.source-tab { padding: 2px 6px; font-size: 10.5px; }
+
+.bottom .rt-TabsList { height: 35px; }
+.bottom .rt-TabsTrigger { font-size: 11.5px; }
+.tab-body { padding: 4px 8px; }
+.row-line { padding: 2px 0; font-size: 11.5px; }
+.problem-filter { padding: 3px 4px; gap: 4px; }
+
+.status { height: 22px; padding: 0 4px; gap: 0; font-size: 11px; }
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  color: var(--ui-text3);
+}
+.status-item:hover { background: var(--ui-raised2); }
+.status-item svg { width: 12px; height: 12px; }
+.status-item.path { font-family: var(--ui-mono); font-size: 10.5px; }
+.status-item.bad { color: var(--ui-red); }
+.status .grow { flex: 1; }
+.status .dim { color: var(--ui-text3); }
+
+.inspector { padding: 12px; }
+h2.sheet { font-size: 13px; }
+.sheet-meta { font-size: 10px; }
+.field { margin-bottom: 9px; }
+.field label { font-size: 10.5px; }
+.stat { padding: 5px 7px; }
+.stat .n { font-size: 15px; }
+.section { margin: 14px 0 0; padding-top: 10px; }
+.section > h3 { font-size: 10.5px; letter-spacing: .04em; }
+.line { padding: 3px 0; font-size: 11.5px; }
+.note { font-size: 10.5px; }
+
+/* Collapsed to a zero-width track, the sidebar must not paint its contents. */
+.navigator { overflow: hidden; }
+.plain { height: 24px; padding: 0 8px; border-radius: 4px; font-size: 11.5px; }

@@ -17,6 +17,7 @@ pub mod sequence;
 pub mod states;
 pub mod style;
 mod svg;
+pub mod symbols;
 pub mod table;
 pub mod trace;
 
@@ -25,9 +26,9 @@ use sysml_model::{Element, Kind};
 pub use graph::{Arrow, Graph, Mode, View};
 
 pub use svg::{
-    general_geometry, interconnection_geometry, node_size, sequence_geometry, states_geometry,
-    traceability_geometry, GeneralGeometry, InterconnectionGeometry, SequenceGeometry,
-    StateGeometry, TraceGeometry,
+    general_geometry, general_geometry_pinned, interconnection_geometry, node_size,
+    sequence_geometry, states_geometry, traceability_geometry, GeneralGeometry,
+    InterconnectionGeometry, SequenceGeometry, StateGeometry, TraceGeometry, PAGE_MARGIN,
 };
 /// Geometry as data, for callers that draw the projection themselves.
 ///

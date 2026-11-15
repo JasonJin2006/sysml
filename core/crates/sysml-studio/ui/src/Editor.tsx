@@ -4,6 +4,7 @@ import 'monaco-editor/basic-languages/monaco.contribution';
 import 'monaco-editor/editor/contrib/find/browser/findController';
 import 'monaco-editor/editor/contrib/suggest/browser/suggestController';
 import { t } from './i18n';
+import { THEME_EVENT, theme } from './theme';
 
 /**
  * The source editor.
@@ -21,6 +22,11 @@ import { t } from './i18n';
 const LANGUAGE = 'sysml';
 
 let registered = false;
+
+/** Monaco keeps its own palette, so it has one theme for each interface theme. */
+function editorTheme(): string {
+  return theme() === 'dark' ? 'sysml-dark' : 'sysml-light';
+}
 
 /** Register the language once, on first use. */
 function register(): void {
@@ -142,11 +148,33 @@ export function Editor({
     // A worker would be a second file to ship, and it buys nothing here: the model already has a
     // resolver and a checker, and those live in the server. Without a worker Monaco falls back to
     // running nothing in the background, which is what a syntax-only editor wants.
+    monaco.editor.defineTheme('sysml-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': '#101113',
+        'editor.foreground': '#C9CBD1',
+        'editorLineNumber.foreground': '#54595E',
+        'editorLineNumber.activeForeground': '#999EA6',
+        'editor.lineHighlightBackground': '#1F2140',
+        'editorCursor.foreground': '#A8B0FF',
+        'editor.selectionBackground': '#2A2E52',
+      },
+    });
     monaco.editor.defineTheme('sysml-light', {
       base: 'vs',
       inherit: true,
       rules: [],
-      colors: { 'editorLineNumber.foreground': '#9aa0a6', 'editor.lineHighlightBackground': '#f3f6fa' },
+      colors: {
+        'editor.background': '#FFFFFF',
+        'editor.foreground': '#1C1C21',
+        'editorLineNumber.foreground': '#A1A3AB',
+        'editorLineNumber.activeForeground': '#4A4F57',
+        'editor.lineHighlightBackground': '#E8EBFA',
+        'editorCursor.foreground': '#4F5CC4',
+        'editor.selectionBackground': '#DDE1F7',
+      },
     });
     const instance = monaco.editor.create(host.current, {
       // The first text is written here rather than by the effect below: `create` runs inside this
@@ -155,7 +183,7 @@ export function Editor({
       // the file while the editor showed nothing.
       value: initialText.current,
       language: LANGUAGE,
-      theme: 'sysml-light',
+      theme: editorTheme(),
       automaticLayout: true,
       fontFamily: "ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace",
       fontSize: 12.5,
@@ -184,6 +212,14 @@ export function Editor({
       instance.dispose();
       editor.current = null;
     };
+  }, []);
+
+  // The palette can change while the editor is open. Monaco resolves its theme
+  // once at creation, so it has to be told again.
+  useEffect(() => {
+    const onChange = () => monaco.editor.setTheme(editorTheme());
+    window.addEventListener(THEME_EVENT, onChange);
+    return () => window.removeEventListener(THEME_EVENT, onChange);
   }, []);
 
   // The server is the owner of the text. When it sends a new version and the editor has nothing

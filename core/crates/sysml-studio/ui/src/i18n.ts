@@ -82,12 +82,20 @@ const ZH: Record<string, string> = {
   'Interface language': '界面语言',
 
   // ---- canvas --------------------------------------------------------
+  'Cannot reach the model service. Reopen the diagram and try again.': '无法连接模型服务。请重新打开图表后重试。',
+  'The model service returned an invalid response. Reopen the diagram and try again.': '模型服务返回了无效响应。请重新打开图表后重试。',
+  'The model service returned HTTP {status}.': '模型服务返回了 HTTP {status}。',
+  'Cannot update the diagram: {reason}. The previous diagram is unchanged.': '无法更新图表：{reason}。原图保持不变。',
   'The interconnection view draws instances only. This model declares definitions and no part usages.':
     '互连视图只画实例。这个模型只声明了定义，没有 part 用法。',
   'Nothing in this model can be drawn.': '模型里没有可画的元素。',
   'Drag a box to move it, drag its corner to resize, scroll to zoom, drag the background to pan':
     '拖动节点移动，拖角改大小，滚轮缩放，空白处拖动平移',
   'The model changed on disk. The picture has been reloaded.': '模型已在外部修改，画面已更新',
+  'Choose either a model-declared view or a single element, not both.': '不能同时选择模型声明视图和单个元素。',
+  'The model has no element named `{key}`. Refresh the diagram and choose an element that still exists.': '模型中没有名为 `{key}` 的元素。请刷新图表并选择仍存在的元素。',
+  'Depth must be between 1 and 64, or omitted for unlimited.': '深度必须在 1 到 64 之间，也可省略以显示全部。',
+  'Unknown layout. Use `nested` or `tree`.': '未知布局。请使用 `nested` 或 `tree`。',
   'No view draws this element.': '这个元素没有画在任何视图里',
 
   // ---- counts --------------------------------------------------------
@@ -97,6 +105,7 @@ const ZH: Record<string, string> = {
   relationships: '关系',
   error: 'error',
   warning: 'warning',
+  info: '信息',
   '{n} element': '{n} 个元素',
   '{n} elements': '{n} 个元素',
   '{n} relationship': '{n} 条关系',
@@ -116,7 +125,7 @@ const ZH: Record<string, string> = {
 
   // ---- inspector -----------------------------------------------------
   'Nothing selected': '未选择元素',
-  'Nothing is waiting: every value has a record, every assumption is approved, no question is open.': '没有待办：每个值都有来源，每个假设都已批准，没有未决问题。',
+  'No outstanding items in this summary. Check Problems for validation results.': '此摘要中没有待处理事项。请查看“问题”面板中的验证结果。',
   'Click a box to see its properties, provenance and problems.':
     '点击画布上的方框查看属性、来源与问题。',
   'Value and provenance': '数值与来源',
@@ -211,6 +220,67 @@ const ZH: Record<string, string> = {
 
   // ---- navigator -----------------------------------------------------
   Model: '模型',
+  Navigation: '导航与视图',
+  'Search the model': '筛选模型元素',
+  Views: '视图',
+  View: '视图',
+  Outline: '结构大纲',
+  'General view': '通用视图',
+  'Interconnection view': '互连视图',
+  'Traceability view': '追溯视图',
+  'Package view': '包视图',
+  'State view': '状态视图',
+  'Action flow view': '动作流',
+  'Sequence view': '时序视图',
+  'Diagram options': '图表选项',
+  Diagram: '图表',
+  Layout: '布局',
+  Depth: '深度',
+  Nested: '嵌套',
+  Tree: '树形',
+  Unlimited: '全部',
+  'Showing element': '当前元素',
+  'Model-declared view': '模型声明视图',
+  'Showing the whole model': '显示整个模型',
+  'To visualize one element, place the cursor on its declaration and run Visualize Element from the Command Palette.': '要查看单个元素，请将光标放在其声明上，然后从命令面板运行“可视化元素”。',
+  'Use nested diagram layout': '使用嵌套布局',
+  'Use tree diagram layout': '使用树形布局',
+  'Show one descendant level': '显示 1 层后代',
+  'Show two descendant levels': '显示 2 层后代',
+  'Show three descendant levels': '显示 3 层后代',
+  'Show four descendant levels': '显示 4 层后代',
+  'Show all descendants': '显示全部后代',
+  'Visualize selected element': '可视化选中元素',
+  'Show whole model': '显示整个模型',
+  'Deeper elements are summarized in a collapsed-count row.': '更深层的元素以折叠数量行概括显示。',
+
+  // ---- theme and canvas tools ----------------------------------------
+  Dark: '深色',
+  Light: '浅色',
+  Theme: '主题',
+  Settings: '设置',
+  'Search commands or elements': '搜索命令或元素',
+  'Export SVG': '导出 SVG',
+  'Nothing to export': '没有可导出的图',
+  Exported: '已导出',
+  Saved: '已保存',
+  Fit: '适配',
+  Undo: '撤销',
+  Redo: '重做',
+  'Zoom out': '缩小',
+  'Zoom in': '放大',
+  Stereotype: '构造型',
+  Ports: '端口',
+
+  // ---- stage bar -----------------------------------------------------
+  Stage: '阶段',
+  Details: '详情',
+  'Hide details': '收起详情',
+  'Copy the next command': '复制下一步命令',
+  Close: '关闭',
+  'Drag to resize': '拖动调整大小',
+  '{n} item waiting': '{n} 项待办',
+  '{n} items waiting': '{n} 项待办',
 
   // ---- compartments and alignment ------------------------------------
   Compartments: '隔间',  'Show or hide the stereotype line': '显示或隐藏构造型行',
@@ -251,6 +321,17 @@ const ZH: Record<string, string> = {
   'This model has no problems.': '这个模型没有问题。',
   'Click to select the element this is about': '点击选中它所说的元素',
   'Show the problems': '显示问题',
+  'Files': '文件',
+  'What to list': '列出什么',
+  'The model, as a tree of elements': '模型，按元素树列出',
+  'The files the model is written in': '模型写在这些文件里',
+  'Save the current file before opening another': '先保存当前文件再打开另一个',
+  'all': '全部',
+  'errors': '错误',
+  'warnings': '警告',
+  'every rule': '所有规则',
+  'No problem matches this filter.': '没有符合这个筛选的问题。',
+  'Show one rule at a time': '一次只看一条规则',
 };
 
 /**

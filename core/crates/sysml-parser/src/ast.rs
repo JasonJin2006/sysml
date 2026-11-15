@@ -62,6 +62,12 @@ pub struct Name {
     /// `<B>` when written.
     pub short: Option<String>,
     pub span: Span,
+    /// Whether the simple name was written in quotes (`'frame'`).
+    ///
+    /// A bare name must be an `UnrestrictedName`, which excludes every reserved word; quotes are
+    /// how a model says it means the word rather than the grammar. The text alone cannot tell the
+    /// two apart, because both store the same unquoted string.
+    pub quoted: bool,
 }
 
 impl Name {
@@ -893,6 +899,12 @@ pub enum Statement {
         name: Name,
         type_ref: Option<TypeRef>,
         body: Vec<BodyMember>,
+        /// The `doc` written directly in the objective's body.
+        ///
+        /// Kept on the statement rather than read back out of `body` later: an objective's prose is
+        /// the sentence that states the objective, and the diagram draws it beside the name. The
+        /// other declarations carry this same field for the same reason.
+        doc: Option<String>,
         span: Span,
     },
     /// `subject x : T;`

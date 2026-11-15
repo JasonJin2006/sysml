@@ -148,11 +148,14 @@ fn states_sit_inside_their_frame_without_overlapping() {
         }
     }
 
-    // Every edge has two ends on the border of its boxes, not a zero-length stub.
+    // Routes may contain orthogonal lead/bend points after behavior layout; they still need two
+    // distinct border ends and a nonzero span.
     for (index, points) in &geo.edges {
-        assert_eq!(points.len(), 2, "edge {index} is a single segment");
-        let length =
-            ((points[1].0 - points[0].0).powi(2) + (points[1].1 - points[0].1).powi(2)).sqrt();
+        assert!(points.len() >= 2, "edge {index} has no route");
+        let length: f32 = points
+            .windows(2)
+            .map(|pair| ((pair[1].0 - pair[0].0).powi(2) + (pair[1].1 - pair[0].1).powi(2)).sqrt())
+            .sum();
         assert!(
             length > 10.0,
             "edge {index} is {length} long: the boxes are touching"

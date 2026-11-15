@@ -1,0 +1,10 @@
+# What ships is `out/`, the grammar, the configuration, `bin/` and the matching standard library.
+# Everything else is a build input, and a VSIX that carries it is a package nobody can read.
+src/**
+test/**
+**/*.ts
+**/*.map
+tsconfig.json
+pack.mjs
+dist/**
+.gitignore

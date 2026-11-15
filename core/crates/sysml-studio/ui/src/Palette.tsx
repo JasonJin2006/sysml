@@ -11,7 +11,8 @@ import { t } from './i18n';
  * The matching is a subsequence, not a substring: `gv` finds "general view" and `chk` finds
  * "check the model", which is what a person means by typing the first letters of the words.
  */
-import { Command, filterCommands } from './commands';
+import { filterCommands } from './commands';
+import type { Command } from './commands';
 
 export type { Command };
 

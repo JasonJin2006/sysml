@@ -67,12 +67,13 @@ export function buildQueue(doc: CanvasDocument): QueueItem[] {
       kind: 'stale-verdict',
       key: judgement.key,
       title: judgement.key,
-      detail: `${judgement.verdict} · judged against ${judgement.judged_against} · model is ${doc.ledger_fingerprint}`,
+      detail: `${judgement.verdict}; judged against ${judgement.judged_against}; model is ${doc.ledger_fingerprint}`,
       requirement: judgement.key,
     });
   }
 
   for (const issue of doc.issues) {
+    if (issue.severity === 'info') continue;
     // The value rows already carry these two facts, with an action attached.
     if (issue.at && (unrecorded.has(issue.at) || unapprovedElements.has(issue.at))) continue;
     items.push({

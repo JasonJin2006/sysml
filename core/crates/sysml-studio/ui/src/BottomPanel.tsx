@@ -1,6 +1,9 @@
+import { Tabs, Badge, Button, Select } from '@radix-ui/themes';
 import type { CanvasDocument } from './types';
 import { SourceView } from './SourceView';
+import { useState } from 'react';
 import { t } from './i18n';
+import { codeCounts, filterProblems, NO_FILTER, severityCounts, type ProblemFilter } from './problems';
 import { QueuePanel } from './QueuePanel';
 import type { QueueItem } from './queue';
 import type { Submit } from './Inspector';
@@ -62,57 +65,100 @@ export function BottomPanel({
     ['source', t('Source'), 0],
   ];
 
+  const [problemFilter, setProblemFilter] = useState<ProblemFilter>(NO_FILTER);
+  const shownProblems = doc ? filterProblems(doc.issues, problemFilter) : [];
+
   return (
     <section className={`bottom${collapsed ? ' collapsed' : ''}`}>
-      <div className="tabs">
-        {counts.map(([key, label, count]) => (
-          <button
-            key={key}
-            className={`tab${key === tab ? ' on' : ''}`}
-            onClick={() => {
-              setTab(key);
-              if (collapsed) setCollapsed(false);
-            }}
-          >
-            {label}
-            {count > 0 && <span className="count">{count}</span>}
-          </button>
-        ))}
-        <span className="grow" />
-        <button
-          className="collapse"
-          title={collapsed ? t('Expand') : t('Collapse')}
-          onClick={() => setCollapsed(!collapsed)}
-        >
-          {collapsed ? '▲' : '▼'}
-        </button>
-      </div>
+      <Tabs.Root
+        value={tab}
+        onValueChange={(next) => {
+          setTab(next as BottomTab);
+          if (collapsed) setCollapsed(false);
+        }}
+      >
+        <Tabs.List size="1">
+          {counts.map(([key, label, count]) => (
+            <Tabs.Trigger key={key} value={key}>
+              {label}
+              {count > 0 && <Badge size="1" variant="soft" ml="1">{count}</Badge>}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+      </Tabs.Root>
+      <button
+        className="collapse"
+        title={collapsed ? t('Expand') : t('Collapse')}
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        {collapsed ? '▲' : '▼'}
+      </button>
 
       {!collapsed && (
         <div className="tab-body">
           {tab === 'problems' && (
             doc && doc.issues.length > 0
-              ? doc.issues.map((issue, index) => (
-                <div
-                  key={`${issue.code}-${issue.line}-${index}`}
-                  className="row-line clickable"
-                  title={t('Click to select the element this is about')}
-                  onClick={() => {
-                    // A diagnostic names a line even when it names no element — a syntax error is
-                    // the whole file's, not one box's — so the line is the fallback. Without it a
-                    // click on the most common kind of problem did nothing at all.
-                    if (issue.at && onLocateIfFound(issue.at)) return;
-                    onLocateLine(issue.line);
-                  }}
-                >
-                  <span className={`tag ${issue.severity === 'error' ? 'bad' : 'warn'}`}>
-                    {issue.severity === 'error' ? t('error') : t('warning')}
-                  </span>
-                  <span className="k mono">{issue.code}</span>
-                  <span className="v">{issue.message}</span>
-                  <span className="k mono">{`${issue.at || '—'}:${issue.line}`}</span>
-                </div>
-              ))
+              ? (
+                <>
+                  <div className="problem-filter">
+                    {(['all', 'error', 'warning', 'info'] as const).map((severity) => {
+                      const counts = severityCounts(doc.issues);
+                      const label =
+                        severity === 'all' ? t('all') : severity === 'error' ? t('errors') : severity === 'warning' ? t('warnings') : t('info');
+                      return (
+                        <Button
+                          key={severity}
+                          size="1"
+                          variant={problemFilter.severity === severity ? 'solid' : 'ghost'}
+                          onClick={() => setProblemFilter({ ...problemFilter, severity })}
+                        >
+                          {`${label} ${counts[severity]}`}
+                        </Button>
+                      );
+                    })}
+                    <Select.Root
+                      value={problemFilter.code ?? 'all'}
+                      onValueChange={(value) =>
+                        setProblemFilter({ ...problemFilter, code: value === 'all' ? null : value })
+                      }
+                    >
+                      <Select.Trigger variant="soft" placeholder={t('every rule')} />
+                      <Select.Content>
+                        <Select.Item value="all">{t('every rule')}</Select.Item>
+                        {codeCounts(doc.issues).map(({ code, count }) => (
+                          <Select.Item key={code} value={code}>
+                            {`${code} (${count})`}
+                          </Select.Item>
+                        ))}
+                      </Select.Content>
+                    </Select.Root>
+                  </div>
+                  {shownProblems.length === 0 && (
+                    <p className="note">{t('No problem matches this filter.')}</p>
+                  )}
+                  {shownProblems.map((issue, index) => (
+                    <div
+                      key={`${issue.code}-${issue.line}-${index}`}
+                      className="row-line clickable"
+                      title={t('Click to select the element this is about')}
+                      onClick={() => {
+                        // A diagnostic names a line even when it names no element — a syntax error
+                        // is the whole file's, not one box's — so the line is the fallback. Without
+                        // it a click on the most common kind of problem did nothing at all.
+                        if (issue.at && onLocateIfFound(issue.at)) return;
+                        onLocateLine(issue.line);
+                      }}
+                    >
+                      <Badge size="1" variant="soft" color={issue.severity === 'error' ? 'red' : issue.severity === 'warning' ? 'amber' : 'gray'}>
+                        {t(issue.severity)}
+                      </Badge>
+                      <span className="k mono">{issue.code}</span>
+                      <span className="v">{issue.message}</span>
+                      <span className="k mono">{`${issue.at || '—'}:${issue.line}`}</span>
+                    </div>
+                  ))}
+                </>
+              )
               : <p className="note">{t('This model has no problems.')}</p>
           )}
 
@@ -140,9 +186,9 @@ export function BottomPanel({
                 <div key={value.key} className="row-line clickable" onClick={() => onLocate(value.key)}>
                   <span className="k mono">{value.key}</span>
                   <span className="v mono">{value.text}</span>
-                  <span className={`tag ${value.origin === 'assumed' ? 'warn' : value.origin ? 'ok' : 'bad'}`}>
+                  <Badge size="1" variant="soft" color={value.origin === 'assumed' ? 'amber' : value.origin ? 'green' : 'red'}>
                     {value.origin ?? t('no record')}
-                  </span>
+                  </Badge>
                 </div>
               ))
               : <p className="note">{t('This model has no values.')}</p>
@@ -156,7 +202,7 @@ export function BottomPanel({
                   className="row-line clickable"
                   onClick={() => question.at && onLocate(question.at)}
                 >
-                  <span className={`tag ${question.state === 'open' ? 'warn' : 'ok'}`}>{question.state}</span>
+                  <Badge size="1" variant="soft" color={question.state === 'open' ? 'amber' : 'green'}>{question.state}</Badge>
                   <span className="v">{question.question}</span>
                   <span className="k mono">{question.at}</span>
                 </div>

@@ -108,6 +108,14 @@ pub struct Input {
     pub from: usize,
     pub to: usize,
     pub kind: Arrow,
+    /// Whether the two ends belong side by side rather than above and below.
+    ///
+    /// A variation's alternatives are the case this exists for: `variant part longRange` is a
+    /// member of `variation part def BatteryChoices`, but it is not *inside* it the way a part is
+    /// inside a definition — the alternatives are what the variation chooses between, and stacking
+    /// them one below another is the one picture that fails to say so. Held at one rank they read
+    /// as a row of choices, which is what the notation draws them as.
+    pub same_rank: bool,
 }
 
 /// How the boxes are arranged.
@@ -157,6 +165,39 @@ pub fn build(
     preorder: &[usize],
     parent: &[Option<usize>],
 ) -> Layered {
+    build_pinned(sizes, edges, preorder, parent, &[])
+}
+
+/// A position a person put a box in, kept where they put it.
+///
+/// The layout decides where everything goes; a pinned box is the exception. It is not "a hint" —
+/// the whole point of dragging a box is that it stays there — so the position replaces whatever
+/// the ranker chose, and everything else is laid out around it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pin {
+    /// Index into the caller's node list.
+    pub node: usize,
+    pub x: f32,
+    pub y: f32,
+    /// The size as it was saved, when the box was resized as well as moved.
+    pub w: Option<f32>,
+    pub h: Option<f32>,
+}
+
+/// [`build`], with boxes a person has placed held where they placed them.
+///
+/// The pin goes in twice, because the two axes are decided by different stages: x and the size are
+/// substituted after the x-coordinates are assigned (the attachment slots and the lanes read them),
+/// and y after the y-coordinates are assigned (that stage writes every box's y from the rank grid,
+/// so an earlier substitution is simply overwritten). Both substitutions land before any connector
+/// is routed, which is what makes the lines follow the box.
+pub fn build_pinned(
+    sizes: &[(f32, f32)],
+    edges: &[Input],
+    preorder: &[usize],
+    parent: &[Option<usize>],
+    pins: &[Pin],
+) -> Layered {
     let n = sizes.len();
     if n == 0 {
         return Layered {
@@ -173,14 +214,25 @@ pub fn build(
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     let mut pair_edge: Vec<usize> = Vec::new();
     let mut pair_kind: Vec<Arrow> = Vec::new();
+    let mut pair_level: Vec<bool> = Vec::new();
     for e in edges {
         if e.kind == Arrow::Connector || e.from == e.to {
             continue;
         }
-        if !pairs.iter().any(|&(a, b)| a == e.from && b == e.to) {
-            pairs.push((e.from, e.to));
-            pair_edge.push(e.index);
-            pair_kind.push(e.kind);
+        // Whether this pair is drawn side by side. Keyed by the pair, because several
+        // relationships between the same two nodes are one drawing decision.
+        match pairs.iter().position(|&(a, b)| a == e.from && b == e.to) {
+            Some(at) => {
+                // A pair is level when any relationship between it says so: an alternative and
+                // its variation are side by side even when an ownership edge also joins them.
+                pair_level[at] = pair_level[at] || e.same_rank;
+            }
+            None => {
+                pairs.push((e.from, e.to));
+                pair_edge.push(e.index);
+                pair_kind.push(e.kind);
+                pair_level.push(e.same_rank);
+            }
         }
     }
 
@@ -205,8 +257,24 @@ pub fn build(
             dag.push((u, v));
         }
     }
-    let rank = rank_nodes(n, &dag, &sequence);
+    let mut rank = rank_nodes(n, &dag, &sequence);
     let _ = &pair_kind;
+    // A level pair is put on one rank. The ranker cannot know it: it sees an ownership edge and
+    // descends, which for a part inside a definition is exactly right and for a variation's
+    // alternative is the one thing that hides what the picture is about. The deeper end moves up
+    // to the shallower one — never the other way — so everything else stays where the ranker put
+    // it, and a node already on a later rank is not dragged backwards past its own children.
+    for (k, &(u, v)) in pairs.iter().enumerate() {
+        if pair_level[k] && rank[u] != rank[v] {
+            let target = rank[u].min(rank[v]);
+            if rank[u] > target {
+                rank[u] = target;
+            }
+            if rank[v] > target {
+                rank[v] = target;
+            }
+        }
+    }
 
     // ---- 3. expand long edges into chains -------------------------------------------------
     let mut nodes: Vec<LNode> = (0..n)
@@ -298,6 +366,33 @@ pub fn build(
         nd.x = xs[id] - min_x;
     }
 
+    // ---- 5b. pinned x and size -------------------------------------------------------------
+    // Where a person put a box wins over where the layout would have put it. x and the size go in
+    // here because the attachment slots and the lanes are computed from them; y goes in after the
+    // y-coordinates are assigned, since that stage writes every node's y from the rank grid.
+    //
+    // The pin is in the same frame as the coordinates reported here: `min_x` was already
+    // subtracted from every box, and the caller subtracts the same offset from a saved position.
+    // Sized after the chain stage added its virtual nodes, so it indexes `nodes` rather than the
+    // caller's list.
+    let mut pinned = vec![false; nodes.len()];
+    for pin in pins {
+        let Some(nd) = nodes.get_mut(pin.node) else {
+            continue;
+        };
+        if nd.real != Some(pin.node) {
+            continue;
+        }
+        pinned[pin.node] = true;
+        nd.x = pin.x;
+        if let Some(w) = pin.w {
+            nd.w = w;
+        }
+        if let Some(h) = pin.h {
+            nd.h = h;
+        }
+    }
+
     // ---- 6. attachment slots --------------------------------------------------------------
     let mut at_side: HashMap<(usize, Side), Vec<Arrow>> = HashMap::new();
     for e in edges {
@@ -357,6 +452,8 @@ pub fn build(
             }
             // One lane per (fan-out node, relationship, gap): the ownership bus and the typing
             // trunk fall out of this key instead of being detected afterwards.
+            // One lane per (fan-out node, relationship, gap): the ownership bus and the typing
+            // trunk fall out of this key instead of being detected afterwards.
             let key = (hop.upper, kind, hop.gap);
             let gi = *key_index.entry(key).or_insert_with(|| {
                 groups.push(Group {
@@ -411,6 +508,9 @@ pub fn build(
     }
 
     // ---- 8. y coordinates -----------------------------------------------------------------
+    // Every box counts towards its rank's height, pinned or not. A drag does not change a box's
+    // size, so leaving the pinned ones out would buy nothing; and a rank whose only boxes were
+    // pinned would measure zero and pull the ranks under it up through them.
     let mut rank_h = vec![0.0f32; ranks];
     for nd in &nodes {
         if nd.real.is_some() {
@@ -429,8 +529,20 @@ pub fn build(
         };
         y += rank_h[r] + gap;
     }
-    for nd in nodes.iter_mut() {
+    for (id, nd) in nodes.iter_mut().enumerate() {
+        if pinned[id] {
+            continue;
+        }
         nd.y = rank_y[nd.rank] + (rank_h[nd.rank] - nd.h) / 2.0;
+    }
+    // Now that the grid is fixed, a pinned box takes the y it was given. Doing this before the
+    // assignment above is why a pinned y used to be ignored: the rank loop wrote over it.
+    for pin in pins {
+        if let Some(nd) = nodes.get_mut(pin.node) {
+            if nd.real == Some(pin.node) {
+                nd.y = pin.y;
+            }
+        }
     }
     // Lane 0 hugs the upper rank of its gap, so a short edge stays short.
     for g in groups.iter_mut() {
@@ -513,7 +625,14 @@ pub fn build(
         .filter(|nd| nd.real.is_some())
         .map(|nd| nd.x + nd.w)
         .fold(0.0f32, f32::max);
-    let height = rank_y[ranks - 1] + rank_h[ranks - 1];
+    // The height follows the boxes as they stand, not the rank grid. A pinned box may sit below
+    // the last rank — that is what a person dragging it down means — and a canvas sized to the
+    // grid would cut it off.
+    let height = nodes
+        .iter()
+        .filter(|nd| nd.real.is_some())
+        .map(|nd| nd.y + nd.h)
+        .fold(rank_y[ranks - 1] + rank_h[ranks - 1], f32::max);
 
     Layered {
         nodes,

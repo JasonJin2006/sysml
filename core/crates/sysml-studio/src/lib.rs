@@ -16,6 +16,7 @@
 pub mod conflict;
 pub mod document;
 pub mod edit;
+mod grid;
 pub mod layout;
 pub mod next;
 mod server;

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { CanvasDocument, CanvasEdge, CanvasFrame, CanvasNode, Display, Rect } from './types';
-import { arrowGeometry, compositeHeadD, edgeLabelAt, edgePath, satisfyHeadD, typingDots, typingHeadD } from './geometry';
+import { arrowGeometry, compositeHeadD, edgeLabelAt, edgePath, placeEdge, satisfyHeadD, typingDots, typingHeadD } from './geometry';
 import { NodeShape } from './NodeShape';
 import type { Marks } from './marks';
 
@@ -27,31 +27,44 @@ export function FrameLayer({
   const chosen = new Set(selection);
   return (
     <>
-      {frames.map((frame) => (
-        <g key={frame.key} className={`frame${chosen.has(frame.key) ? ' selected' : ''}`} data-key={frame.key}>
-          <rect x={frame.x} y={frame.y} width={frame.w} height={frame.h} className="frame-body" />
-          <line
-            x1={frame.x}
-            x2={frame.x + frame.w}
-            y1={frame.y + frame.title}
-            y2={frame.y + frame.title}
-            className="frame-rule"
-          />
-          <text x={frame.x + 8} y={frame.y + frame.title - 6} className="frame-title">{frame.label}</text>
-          <rect
-            x={frame.x}
-            y={frame.y}
-            width={frame.w}
-            height={frame.title}
-            className="frame-hit"
-            onPointerDown={(event) => {
-              if (event.button !== 0) return;
-              event.stopPropagation();
-              select(frame.key);
-            }}
-          />
-        </g>
-      ))}
+      {frames.map((frame) => {
+        const words = frame.stereotype.split(/\s+/);
+        const state = words.includes('state');
+        const definition = words.includes('def') || words.includes('definition');
+        return (
+          <g key={frame.key} className={`frame${chosen.has(frame.key) ? ' selected' : ''}`} data-key={frame.key}>
+            <rect x={frame.x} y={frame.y} width={frame.w} height={frame.h} rx={state && !definition ? 6 : 0} className="frame-body" />
+            <line
+              x1={frame.x}
+              x2={frame.x + frame.w}
+              y1={frame.y + frame.title}
+              y2={frame.y + frame.title}
+              className="frame-rule"
+            />
+            <text x={frame.x + 8} y={frame.y + 16} className="frame-title">
+              {state ? `«${frame.stereotype}» ${frame.label}` : frame.label}
+            </text>
+            {state && frame.rows.length > 0 && (
+              <text x={frame.x + 8} y={frame.y + 34} style={{ fill: 'var(--ui-text3)', fontSize: 9 }} pointerEvents="none">state actions</text>
+            )}
+            {frame.rows.map((row, index) => (
+              <text key={index} x={frame.x + 8} y={frame.y + (state ? 48 : 34) + index * 16} style={{ fill: 'var(--ui-text2)', fontSize: 10 }} pointerEvents="none">{row}</text>
+            ))}
+            <rect
+              x={frame.x}
+              y={frame.y}
+              width={frame.w}
+              height={frame.title}
+              className="frame-hit"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.stopPropagation();
+                select(frame.key);
+              }}
+            />
+          </g>
+        );
+      })}
     </>
   );
 }
@@ -70,28 +83,55 @@ export function FrameLayer({
 export function EdgeLayer({
   doc,
   select,
+  overrides,
 }: {
   doc: CanvasDocument;
   select: (key: string) => void;
+  /** Boxes as a drag currently leaves them, so the lines follow the box rather than its old place. */
+  overrides: Record<string, Rect>;
 }) {
+  const edges = useMemo(() => {
+    const nodes = new Map(doc.nodes.map((node) => [node.key, node]));
+    return doc.edges.map((edge) => placeEdge(
+      edge,
+      nodes.get(edge.from_key),
+      nodes.get(edge.to_key),
+      overrides[edge.from_key],
+      overrides[edge.to_key],
+    ));
+  }, [doc.edges, doc.nodes, overrides]);
+
   const layers = useMemo(() => {
     const ink = new Map<string, string[]>();
-    for (const edge of doc.edges) {
+    for (const edge of edges) {
       const parts = ink.get(edge.arrow);
       if (parts) parts.push(edgePath(edge));
       else ink.set(edge.arrow, [edgePath(edge)]);
     }
     return [...ink.entries()].map(([kind, parts]) => ({ kind, d: parts.join(' ') }));
-  }, [doc.edges]);
+  }, [edges]);
+
+  const heads = useMemo(() => {
+    const drawn = new Set<string>();
+    return edges.filter((edge) => {
+      if (edge.arrow !== 'composite') return true;
+      const geometry = arrowGeometry(edge);
+      if (!geometry) return false;
+      const key = [edge.from_key, ...geometry.anchor, geometry.ux, geometry.uy].join(':');
+      if (drawn.has(key)) return false;
+      drawn.add(key);
+      return true;
+    });
+  }, [edges]);
 
   return (
     <>
       {layers.map(({ kind, d }) => (
         <path key={`ink-${kind}`} d={d} fill="none" className={`edge ${kind}`} vectorEffect="non-scaling-stroke" />
       ))}
-      {doc.edges.map((edge) => <EdgeLabel key={`label-${edge.index}`} edge={edge} />)}
-      {doc.edges.map((edge) => <EdgeHead key={`head-${edge.index}`} edge={edge} />)}
-      {doc.edges.map((edge) => (
+      {edges.map((edge) => <EdgeLabel key={`label-${edge.index}`} edge={edge} />)}
+      {heads.map((edge) => <EdgeHead key={`head-${edge.index}`} edge={edge} />)}
+      {edges.map((edge) => (
         <polyline
           key={`hit-${edge.index}`}
           points={edge.points.map((p) => `${p[0]},${p[1]}`).join(' ')}
@@ -112,22 +152,20 @@ function EdgeHead({ edge }: { edge: CanvasEdge }) {
   const geo = arrowGeometry(edge);
   if (!geo) return null;
   if (edge.arrow === 'composite') {
-    return <path d={compositeHeadD(geo)} fill="#000" stroke="#000" strokeWidth={0.8} />;
+    return <path d={compositeHeadD(geo)} fill="var(--ui-edge)" stroke="var(--ui-edge)" strokeWidth={0.8} />;
   }
   if (edge.arrow === 'typing') {
     return (
       <g>
-        <path d={typingHeadD(geo)} fill="#fff" stroke="#000" strokeWidth={1} />
+        <path d={typingHeadD(geo)} fill="var(--ui-canvas)" stroke="var(--ui-edge)" strokeWidth={1} />
         {typingDots(geo).map(([cx, cy], i) => (
-          <circle key={i} cx={cx} cy={cy} r={1.4} fill="#000" />
+          <circle key={i} cx={cx} cy={cy} r={1.4} fill="var(--ui-edge)" />
         ))}
       </g>
     );
   }
-  // An annotation ends in the same open head a satisfaction does; the dashed stroke that tells
-  // them apart is on the ink layer, where the class carries the arrow kind.
-  if (edge.arrow === 'satisfy' || edge.arrow === 'annotate') {
-    return <path d={satisfyHeadD(geo)} stroke="#000" strokeWidth={1.1} fill="none" />;
+  if (edge.arrow === 'satisfy' || edge.arrow === 'annotate' || edge.arrow === 'transition') {
+    return <path d={satisfyHeadD(geo)} stroke="var(--ui-edge)" strokeWidth={1.1} fill="none" />;
   }
   return null;
 }
@@ -135,18 +173,9 @@ function EdgeHead({ edge }: { edge: CanvasEdge }) {
 function EdgeLabel({ edge }: { edge: CanvasEdge }) {
   const at = edgeLabelAt(edge);
   if (!at || !edge.label) return null;
-  return (
-    <g>
-      <rect
-        x={at.x - at.width / 2}
-        y={at.y - 10}
-        width={at.width}
-        height={12}
-        className="edge-label-plate"
-      />
-      <text x={at.x} y={at.y - 1} textAnchor="middle" className="edge-label">{edge.label}</text>
-    </g>
-  );
+  // No plate behind the text. It used to be a filled rectangle that hid the line, which drawn is a
+  // block of paper on the picture: the notation puts a label beside its line, not on a card.
+  return <text x={at.x} y={at.y - 1} textAnchor="middle" className="edge-label">{edge.label}</text>;
 }
 
 /** The boxes: everything except packages, whose rectangles are their frames. */
@@ -175,6 +204,7 @@ export function NodeLayer({
             key={node.key}
             node={node}
             rect={rect}
+            view={doc.view}
             selected={chosen.has(node.key)}
             display={display}
             judgement={verdicts.get(node.key) ?? null}

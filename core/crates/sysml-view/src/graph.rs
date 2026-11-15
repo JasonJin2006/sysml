@@ -150,6 +150,33 @@ pub struct Port {
     pub side: Side,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeSymbol {
+    Rectangle,
+    Initial,
+    Done,
+    Decision,
+    Merge,
+    Fork,
+    Join,
+    Actor,
+}
+
+impl NodeSymbol {
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Self::Rectangle => "rectangle",
+            Self::Initial => "initial",
+            Self::Done => "done",
+            Self::Decision => "decision",
+            Self::Merge => "merge",
+            Self::Fork => "fork",
+            Self::Join => "join",
+            Self::Actor => "actor",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     /// PlantUML-style alias (`E1`, `E2`) so a diff against the reference is alias-free.
@@ -160,6 +187,7 @@ pub struct Node {
     /// never the label, so the two are kept apart instead of parsing `: Type` back off.
     pub bare: String,
     pub stereotype: String,
+    pub symbol: NodeSymbol,
     pub is_def: bool,
     /// True when the node is drawn as a frame with a title band rather than as a box.
     ///
@@ -246,6 +274,7 @@ impl Graph {
             name: name.to_string(),
             bare: bare.to_string(),
             stereotype: kind.keyword().to_string(),
+            symbol: NodeSymbol::Rectangle,
             is_def: kind.is_definition(),
             is_frame: matches!(kind, Kind::Package),
             attributes: Vec::new(),
@@ -259,6 +288,12 @@ impl Graph {
             self.nodes[p].children.push(index);
         }
         index
+    }
+
+    pub(crate) fn push_terminal(&mut self, frame: usize) -> usize {
+        let node = self.push("done", "done", &Kind::PseudoState, Some(frame));
+        self.nodes[node].symbol = NodeSymbol::Done;
+        node
     }
 
     /// Attach the element a node stands for, so an editor can address the drawn box.
@@ -281,6 +316,22 @@ impl Graph {
         };
         let index = self.push(name, bare, &el.kind, parent);
         self.nodes[index].element = Some(el.id);
+        // The modifiers the notation writes in front of the kind word. `kind.keyword()` alone
+        // answers `part` for a `ref part`, an `end part` and a `variant part` alike, so a diagram
+        // drew a borrowed reference, a connector end and a variation alternative as three
+        // identical boxes — the one distinction those declarations exist to make.
+        self.nodes[index].stereotype = stereotype_of(el);
+        self.nodes[index].symbol = match el.kind {
+            Kind::ControlNode => match el.control_kind.as_deref() {
+                Some("decision") => NodeSymbol::Decision,
+                Some("merge") => NodeSymbol::Merge,
+                Some("fork") => NodeSymbol::Fork,
+                Some("join") => NodeSymbol::Join,
+                _ => NodeSymbol::Rectangle,
+            },
+            Kind::Actor => NodeSymbol::Actor,
+            _ => NodeSymbol::Rectangle,
+        };
         index
     }
 
@@ -299,6 +350,86 @@ fn visible(el: &Element) -> bool {
         // `check` can report coverage; it is not a system element and nothing should draw it.
         Kind::Package | Kind::Satisfy | Kind::Connection | Kind::Import | Kind::Unsupported
     )
+}
+
+/// The sentence an objective states, as one compartment line.
+///
+/// A `doc` is prose and may be several sentences or several lines. A compartment row is one line,
+/// so the first sentence is taken and the rest is left where the model wrote it — a row that ran on
+/// for eighty characters would widen the box and push every neighbour aside for the sake of text
+/// the reader can find in the file.
+fn objective_line(child: &Element) -> Option<String> {
+    let text = child.doc.as_deref()?.trim();
+    let first = text
+        .split_inclusive(['.', '。'])
+        .next()
+        .unwrap_or(text)
+        .split('\n')
+        .next()
+        .unwrap_or(text)
+        .trim();
+    if first.is_empty() {
+        return None;
+    }
+    // `chars()` rather than bytes: a model may write its documentation in a script where one
+    // character is three bytes, and slicing inside one panics.
+    let mut out: String = first.chars().take(72).collect();
+    if first.chars().count() > 72 {
+        out.push('…');
+    }
+    Some(out)
+}
+
+/// The stereotype a box is drawn with: the modifiers, then the kind word.
+///
+/// The notation writes `«ref part»`, `«end port»`, `«variant part»`, `«abstract part def»`,
+/// `«timeslice»`, `«snapshot»` — the modifier is part of the kind, not decoration. `kind.keyword()`
+/// alone answers `part` for the first three, so a variation alternative, a borrowed reference and a
+/// connector end all came out as the same box.
+///
+/// The order is the grammar's: `abstract` and `variation` modify the definition, `ref`, `individual`,
+/// `snapshot` and `timeslice` the usage, and `end` is written after the direction it belongs to.
+/// Only what the reference actually spells is included: a plain `part` stays `«part»`, because a
+/// diagram that writes `«part usage»` on every box has stopped saying anything.
+fn stereotype_of(el: &Element) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if el.is_end {
+        parts.push("end");
+    }
+    if el.modifiers.is_abstract {
+        parts.push("abstract");
+    }
+    if el.modifiers.is_variation {
+        parts.push("variation");
+    }
+    if el.is_variant {
+        parts.push("variant");
+    }
+    if el.modifiers.is_reference {
+        parts.push("ref");
+    }
+    // `timeslice` and `snapshot` are the two portions that name a restriction in time. The
+    // reference writes them alone — `«timeslice»`, not `«timeslice occurrence»` — because the
+    // word already says the element is an occurrence usage; a timeslice is an individual usage
+    // whose portion says so, and writing both words says it twice.
+    let portion = el.modifiers.portion.as_deref();
+    let portion_named = matches!(portion, Some("timeslice" | "snapshot"));
+    if portion_named {
+        parts.push(portion.unwrap_or_default());
+    } else if el.modifiers.is_individual {
+        parts.push("individual");
+    }
+    let keyword = if portion_named {
+        ""
+    } else {
+        el.kind.keyword_as(el.is_definition)
+    };
+    let written: Vec<&str> = parts.into_iter().filter(|p| !p.is_empty()).collect();
+    match (written.is_empty(), keyword.is_empty()) {
+        (true, _) => keyword.to_string(),
+        (false, true) => written.join(" "),
+        (false, false) => format!("{} {keyword}", written.join(" ")),
+    }
 }
 
 /// General view: one node per element, ownership and typing as edges.
@@ -390,6 +521,19 @@ pub fn general(roots: &[Element], mode: Mode) -> Graph {
                 planned.push(Planned::Specializes(index, el.id, sup.to_string()));
             }
         }
+        // An analysis or verification case names what it is about, not what it contains.
+        //
+        // `subject vehicle : Vehicle` and `objective { … }` are members of the case, so the walk
+        // would draw them as two boxes below it — which says the case *has* a vehicle and an
+        // objective the way a drone has a battery. The notation says otherwise: they are
+        // compartments of the case, labelled `subject` and `objective`, and the case is a claim
+        // about a thing rather than a structure holding one. The reference draws a frame with those
+        // two bands; this draws the same information as rows in the box, which is the part of that
+        // picture the rest of this renderer can express.
+        let case = matches!(
+            el.kind,
+            Kind::AnalysisCaseDef | Kind::CaseDef | Kind::VerificationDef | Kind::VerificationUsage
+        );
         for child in &el.children {
             // The reference never lowers a port definition's body, so `port def FuelOutlet`
             // draws as an empty box. Extended shows the directed items.
@@ -398,6 +542,53 @@ pub fn general(roots: &[Element], mode: Mode) -> Graph {
             }
             // Inherited ports are extended's mechanism for resolving connector endpoints.
             if mode == Mode::Compat && child.inherited {
+                continue;
+            }
+            if case && matches!(child.kind, Kind::Subject | Kind::Objective) {
+                let row = match child.kind {
+                    Kind::Subject => {
+                        // `subject vehicle : Vehicle` names both; `subject :>> vehicle = …`
+                        // redefines an inherited one, so the declaration writes no name and the
+                        // redefined target is the only name there is. A row reading
+                        // `subject  : vehicle` drops the one word that identifies it.
+                        let name = if child.name.is_empty() {
+                            child
+                                .redefines
+                                .first()
+                                .cloned()
+                                .or_else(|| child.type_ref.clone())
+                                .unwrap_or_default()
+                        } else {
+                            child.name.clone()
+                        };
+                        match &child.type_ref {
+                            Some(ty) if !child.name.is_empty() => {
+                                format!("subject {name} : {ty}")
+                            }
+                            _ => format!("subject {name}"),
+                        }
+                    }
+                    _ => {
+                        // An objective names the requirement it is about, and quotes what it says
+                        // when the model wrote a `doc`. `objective obj : R — Determine whether …`
+                        // is the whole claim; the name alone says only that there is one.
+                        let name = child.name.trim();
+                        // An anonymous objective lowers with the keyword as its name, so a row
+                        // reading `objective objective` would be the label said twice.
+                        let named = !name.is_empty() && name != "objective";
+                        let target = match child.type_ref.as_deref() {
+                            Some(ty) if !named => format!("objective : {ty}"),
+                            Some(ty) => format!("objective {name} : {ty}"),
+                            None if !named => "objective".to_string(),
+                            None => format!("objective {name}"),
+                        };
+                        match objective_line(child) {
+                            Some(line) => format!("{target} — {line}"),
+                            None => target,
+                        }
+                    }
+                };
+                g.nodes[index].attributes.push(row);
                 continue;
             }
             // A `subject` is a declared name a predicate is written against, not a feature of

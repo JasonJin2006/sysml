@@ -25,6 +25,7 @@ pub struct CanvasNode {
     /// Index in the projection, which is what edges refer to.
     pub index: usize,
     pub stereotype: String,
+    pub symbol: String,
     pub label: String,
     /// Definitions draw square-cornered, usages round-cornered.
     pub is_def: bool,
@@ -72,6 +73,7 @@ pub struct CanvasFrame {
     pub h: f32,
     /// Height of the title band, so the canvas draws the separator where the export does.
     pub title: f32,
+    pub rows: Vec<String>,
 }
 
 /// One relationship, as a polyline the canvas can hit-test and draw symbols on.
@@ -190,6 +192,9 @@ pub struct CanvasDocument {
     pub fingerprint: String,
     pub view: String,
     pub mode: String,
+    pub layout: String,
+    pub scoped: bool,
+    pub depth: Option<usize>,
     pub width: f32,
     pub height: f32,
     pub nodes: Vec<CanvasNode>,
@@ -226,6 +231,12 @@ pub struct Session {
     /// what is in the picture. `None` means "the projection over the whole model", which is what
     /// every built-in view button asks for.
     pub model_view: Option<String>,
+    /// A single element and its descendants, selected by the editor's native element command.
+    pub scope: Option<String>,
+    /// Descendant levels for the scoped diagram; `None` means unlimited.
+    pub depth: Option<usize>,
+    /// A per-diagram style choice, kept separate from the view declaration.
+    pub style: Option<sysml_view::layered::Style>,
     /// The model as it was before each edit, newest last.
     ///
     /// Every edit path goes through `commit`, so recording there makes an edit undoable without each
@@ -259,6 +270,9 @@ impl Session {
             view,
             mode,
             model_view: None,
+            scope: None,
+            depth: None,
+            style: None,
             history: Vec::new(),
             redo: Vec::new(),
         })
@@ -287,10 +301,10 @@ impl Session {
         if let Some(seen) = seen {
             let now = fingerprint(&self.sources);
             if now != seen {
-                return Err(format!(
-                    "the model changed on disk since this page loaded it. Nothing was written. \
-                     The canvas is reloading; the edit has to be made again on the current text."
-                ));
+                return Err(
+                    "The model changed on disk. Nothing was written. Refresh the view and try again."
+                        .to_string(),
+                );
             }
         }
         Ok(())
@@ -486,11 +500,69 @@ impl Session {
         // A model-declared view draws what its `expose` clauses name; every other view draws the
         // whole model. The check below still runs over the whole tree: a diagnostic is about the
         // model, not about the picture on screen.
-        let drawn = match &self.model_view {
-            Some(key) => prune_to(&narrowed, &exposures_of(&loaded.roots, key)),
-            None => narrowed,
+        let (mut drawn, collapsed) = match &self.model_view {
+            Some(key) => {
+                if self.scope.is_some() {
+                    return Err(
+                        "Choose either a model-declared view or a single element, not both."
+                            .to_string(),
+                    );
+                }
+                if !views(&loaded.roots).iter().any(|entry| &entry.key == key) {
+                    return Err(format!(
+                        "The model no longer declares view `{key}`. Choose another diagram or reopen the model."
+                    ));
+                }
+                (
+                    prune_to(&narrowed, &exposures_of(&loaded.roots, key)),
+                    BTreeMap::new(),
+                )
+            }
+            None => match &self.scope {
+                Some(key) => {
+                    if !edit::live_names(&loaded).contains(key) {
+                        return Err(format!("The model has no element named `{key}`. Refresh the diagram and choose an element that still exists."));
+                    }
+                    let mut tree = subtree(&narrowed, key)
+                        .ok_or_else(|| format!("The model has no element named `{key}`."))?;
+                    let mut collapsed = BTreeMap::new();
+                    if let Some(depth) = self.depth {
+                        for root in &mut tree {
+                            let mut path: Vec<String> = key
+                                .split("::")
+                                .take(key.split("::").count().saturating_sub(1))
+                                .map(str::to_string)
+                                .collect();
+                            truncate_depth(root, 0, depth, &mut path, &mut collapsed);
+                        }
+                    }
+                    (tree, collapsed)
+                }
+                None => {
+                    let mut tree = narrowed;
+                    let mut collapsed = BTreeMap::new();
+                    if let Some(depth) = self.depth {
+                        for root in &mut tree {
+                            truncate_depth(root, 0, depth, &mut Vec::new(), &mut collapsed);
+                        }
+                    }
+                    (tree, collapsed)
+                }
+            },
         };
-        let graph = sysml_view::project(&drawn, self.view, self.mode);
+        sysml_view::renumber_ids(&mut drawn);
+        let mut graph = sysml_view::project(&drawn, self.view, self.mode);
+        let mut keys = keys_by_index(&graph, &drawn);
+        if let Some(scope) = &self.scope {
+            qualify_scoped_keys(&mut keys, scope);
+        }
+        for (&index, key) in &keys {
+            if let Some(count) = collapsed.get(key) {
+                graph.nodes[index]
+                    .attributes
+                    .push(format!("… {count} nested elements collapsed"));
+            }
+        }
 
         // The layout is keyed by qualified name, so it has to be pruned against the names that
         // exist now; a placement for a deleted element is a position for nothing.
@@ -500,8 +572,36 @@ impl Session {
 
         // `drawn` rather than the loaded tree: pruning renumbers, so a node's id is an index into
         // what was drawn, and looking it up in the original tree answers with the wrong name.
-        let keys = keys_by_index(&graph, &drawn);
-        let geo = geometry(&graph, &self.view);
+        let mut keys = keys_by_index(&graph, &drawn);
+        if let Some(scope) = &self.scope {
+            qualify_scoped_keys(&mut keys, scope);
+        }
+        // Where a person has put each box, by the node index the view draws it at. The layout is
+        // keyed by qualified name and the renderer by node index, so the two are joined here — the
+        // one place that knows both.
+        //
+        // The margin comes off here and goes back on in the geometry: a sidecar stores the
+        // picture's coordinates, which is what a person dragged to, and the layout works in its own
+        // frame with the page margin added on the way out.
+        let pins: Vec<sysml_view::layered::Pin> = keys
+            .iter()
+            .filter_map(|(&node, key)| {
+                let placement = layout.get(key)?;
+                Some(sysml_view::layered::Pin {
+                    node,
+                    x: placement.x - sysml_view::PAGE_MARGIN,
+                    y: placement.y,
+                    w: placement.w,
+                    h: placement.h,
+                })
+            })
+            .collect();
+        let geo = geometry(
+            &graph,
+            &self.view,
+            &pins,
+            self.style.unwrap_or(sysml_view::layered::Style::Nested),
+        );
         let boxes = geo.boxes;
         let polylines = geo.polylines;
         let width = geo.width;
@@ -543,19 +643,25 @@ impl Session {
                     let (w, h) = sysml_view::node_size(node);
                     (0.0, 0.0, w, h)
                 });
+            // The geometry already carries any saved placement: it was handed the pins, so a box a
+            // person moved is at the coordinate they put it and the lines were routed to that
+            // coordinate. Reading the placement again here would be a second answer to the same
+            // question — and the one that lets a line describe a different arrangement from the box
+            // it joins.
             let placement = layout.get(&key);
             nodes.push(CanvasNode {
                 key,
                 index,
                 stereotype: node.stereotype.clone(),
+                symbol: node.symbol.keyword().to_string(),
                 label: node.label().to_string(),
                 is_def: node.is_def,
                 is_frame: node.is_frame,
                 unmet: unmet_nodes.contains(&index),
-                x: placement.map(|p| p.x).unwrap_or(gx),
-                y: placement.map(|p| p.y).unwrap_or(gy),
-                w: placement.and_then(|p| p.w).unwrap_or(gw),
-                h: placement.and_then(|p| p.h).unwrap_or(gh),
+                x: gx,
+                y: gy,
+                w: gw,
+                h: gh,
                 placed: placement.is_some(),
                 rows: node
                     .attributes
@@ -598,7 +704,13 @@ impl Session {
                     y: *y,
                     w: *w,
                     h: *h,
-                    title: sysml_view::packages::TITLE,
+                    title: match self.view {
+                        View::StateTransition | View::ActionFlow => {
+                            sysml_view::states::frame_title(node)
+                        }
+                        _ => sysml_view::packages::TITLE,
+                    },
+                    rows: node.attributes.clone(),
                 }
             })
             .collect();
@@ -663,13 +775,41 @@ impl Session {
                 line: issue.line,
             })
             .collect();
-        issues.extend(audit.issues.iter().map(|issue| CanvasIssue {
-            severity: "error".to_string(),
-            code: "PROV".to_string(),
-            message: issue.render(),
-            at: String::new(),
-            line: 0,
-        }));
+        if audit.not_started() {
+            issues.push(CanvasIssue {
+                severity: "info".to_string(),
+                code: "PROV000".to_string(),
+                message: format!(
+                    "Provenance ledger not started: {} value(s) and {} part definition(s) have no decision records. This is not a SysML validation error.",
+                    audit.issues.iter().filter(|issue| issue.code == "PROV001").count(),
+                    audit.unaccounted_parts.len()
+                ),
+                at: String::new(),
+                line: 1,
+            });
+        } else {
+            fn collect_lines(entries: &[OutlineEntry], lines: &mut BTreeMap<String, u32>) {
+                for entry in entries {
+                    lines.insert(entry.key.clone(), entry.line);
+                    collect_lines(&entry.children, lines);
+                }
+            }
+            let mut lines = BTreeMap::new();
+            collect_lines(&outline(&loaded.roots), &mut lines);
+            issues.extend(audit.issues.iter().map(|issue| {
+                CanvasIssue {
+                    severity: match issue.severity {
+                        sysml_ledger::Severity::Error => "error",
+                        sysml_ledger::Severity::Warning => "warning",
+                    }
+                    .to_string(),
+                    code: issue.code.to_string(),
+                    message: issue.message.clone(),
+                    at: issue.at.clone(),
+                    line: lines.get(&issue.at).copied().unwrap_or(1),
+                }
+            }));
+        }
 
         let values = sysml_ledger::value_bearing(&loaded.roots)
             .into_iter()
@@ -777,6 +917,13 @@ impl Session {
             fingerprint: fingerprint(&self.sources),
             view: view_key(&self.view).to_string(),
             mode: mode_key(&self.mode).to_string(),
+            layout: match self.style.unwrap_or(sysml_view::layered::Style::Nested) {
+                sysml_view::layered::Style::Nested => "nested",
+                sysml_view::layered::Style::Tree => "tree",
+            }
+            .to_string(),
+            scoped: self.scope.is_some(),
+            depth: self.depth,
             width,
             height,
             nodes,
@@ -802,10 +949,15 @@ struct Geometry {
     height: f32,
 }
 
-fn geometry(graph: &Graph, view: &View) -> Geometry {
+fn geometry(
+    graph: &Graph,
+    view: &View,
+    pins: &[sysml_view::layered::Pin],
+    style: sysml_view::layered::Style,
+) -> Geometry {
     match view {
         View::General => {
-            let g = sysml_view::general_geometry(graph, sysml_view::layered::Style::Nested);
+            let g = sysml_view::general_geometry_pinned(graph, style, pins);
             Geometry {
                 boxes: g
                     .boxes
@@ -968,6 +1120,17 @@ pub fn outline(roots: &[Element]) -> Vec<OutlineEntry> {
         walk(root, &mut Vec::new(), &mut out);
     }
     out
+}
+
+fn qualify_scoped_keys(keys: &mut BTreeMap<usize, String>, scope: &str) {
+    let local_root = scope.rsplit("::").next().unwrap_or(scope);
+    for key in keys.values_mut() {
+        if key == local_root {
+            *key = scope.to_string();
+        } else if let Some(suffix) = key.strip_prefix(&format!("{local_root}::")) {
+            *key = format!("{scope}::{suffix}");
+        }
+    }
 }
 
 /// Qualified name for each projected node.
@@ -1483,6 +1646,58 @@ pub fn exposures(el: &Element) -> Vec<String> {
         .filter(|c| c.kind == Kind::Expose)
         .filter_map(|c| c.to.clone().or_else(|| c.type_ref.clone()))
         .collect()
+}
+
+/// A single element and its complete descendant subtree, renumbered as a new root.
+fn subtree(roots: &[Element], key: &str) -> Option<Vec<Element>> {
+    fn walk(el: &Element, path: &mut Vec<String>, key: &str) -> Option<Element> {
+        let named = el.name != "<anonymous>";
+        if named {
+            path.push(el.name.clone());
+        }
+        let found = if path.join("::") == key {
+            Some(el.clone())
+        } else {
+            el.children.iter().find_map(|child| walk(child, path, key))
+        };
+        if named {
+            path.pop();
+        }
+        found
+    }
+    let mut result = roots
+        .iter()
+        .find_map(|root| walk(root, &mut Vec::new(), key))?;
+    sysml_view::renumber_ids(std::slice::from_mut(&mut result));
+    Some(vec![result])
+}
+
+/// Keep descendants through `depth` and replace deeper structure with one explicit compartment row.
+fn truncate_depth(
+    element: &mut Element,
+    level: usize,
+    depth: usize,
+    path: &mut Vec<String>,
+    collapsed: &mut BTreeMap<String, usize>,
+) {
+    if element.name != "<anonymous>" {
+        path.push(element.name.clone());
+    }
+    if level >= depth && !element.children.is_empty() {
+        fn count(el: &Element) -> usize {
+            el.children.iter().map(|child| 1 + count(child)).sum()
+        }
+        let hidden = element.children.iter().map(|child| 1 + count(child)).sum();
+        collapsed.insert(path.join("::"), hidden);
+        element.children.clear();
+    } else {
+        for child in &mut element.children {
+            truncate_depth(child, level + 1, depth, path, collapsed);
+        }
+    }
+    if element.name != "<anonymous>" {
+        path.pop();
+    }
 }
 
 /// The element tree cut down to what a view exposes.

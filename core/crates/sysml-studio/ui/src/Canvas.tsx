@@ -58,6 +58,7 @@ export function Canvas({
 }) {
   const viewport = viewportRef;
   const drag = useRef<Drag | null>(null);
+  const latestRects = useRef<Record<string, Rect>>({});
   const [cursor, setCursor] = useState<'pan' | 'node' | null>(null);
 
   const toWorld = useCallback((clientX: number, clientY: number) => {
@@ -115,6 +116,7 @@ export function Canvas({
         moved: false,
       };
     }
+    latestRects.current = {};
     onDragChange(true);
     setCursor('node');
     viewport.current?.setPointerCapture(event.pointerId);
@@ -153,16 +155,19 @@ export function Canvas({
       for (const start of active.starts) {
         moved[start.key] = { x: start.x + dx, y: start.y + dy, w: start.w, h: start.h };
       }
+      latestRects.current = moved;
       setOverrides(moved);
     } else {
-      setOverrides({
+      const resized = {
         [active.start.key]: {
           x: active.start.x,
           y: active.start.y,
           w: Math.max(70, active.start.w + dx),
           h: Math.max(44, active.start.h + dy),
         },
-      });
+      };
+      latestRects.current = resized;
+      setOverrides(resized);
     }
   }, [camera, setCamera, setOverrides, toWorld]);
 
@@ -187,7 +192,7 @@ export function Canvas({
     const starts = active.kind === 'move' ? active.starts : [active.start];
     const placements: Placement[] = [];
     for (const start of starts) {
-      const rect = rectOf(start.key);
+      const rect = latestRects.current[start.key] ?? rectOf(start.key);
       if (rect) placements.push({ key: start.key, ...rect });
     }
     if (placements.length > 0) onPlaced(placements);
@@ -224,8 +229,10 @@ export function Canvas({
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
           {doc && (
             <>
-              <EdgeLayer doc={doc} select={(key) => select([key])} />
               <FrameLayer frames={doc.frames ?? []} selection={selection} select={(key) => select([key])} />
+              {view !== 'iv' && view !== 'sv' && (
+                <EdgeLayer doc={doc} select={(key) => select([key])} overrides={overrides} />
+              )}
               <NodeLayer
                 doc={doc}
                 selection={selection}
@@ -233,6 +240,9 @@ export function Canvas({
                 overrides={overrides}
                 beginDrag={beginDrag}
               />
+              {view === 'iv' || view === 'sv' ? (
+                <EdgeLayer doc={doc} select={(key) => select([key])} overrides={overrides} />
+              ) : null}
               {marks && <MarksLayer doc={doc} marks={marks} overrides={overrides} />}
             </>
           )}

@@ -12,7 +12,7 @@
 //! that counted characters would split a message in the middle of a multi-byte one — the failure
 //! shows up as a parse error far from its cause.
 
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, Write};
 
 /// One message, read from the wire.
 #[derive(Debug, Clone)]
