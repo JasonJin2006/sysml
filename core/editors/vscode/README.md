@@ -31,7 +31,7 @@ Updates distributed as VSIX files must be installed manually. A GitHub release i
 | Command | Use it to |
 |---|---|
 | `SysML: Open Diagram` | Open or reveal the diagram beside the source. |
-| `SysML: Choose Diagram` | Pick a built-in projection or a view declared in the model. |
+| `SysML: Choose Diagram` | Pick a projection over the whole model or the current element subtree, or a view declared in the model. |
 | `SysML: Visualize Element` | Draw the element at the cursor and its descendants. |
 | `SysML: Change Diagram Depth` | Change how much of an element-scoped diagram is shown. |
 | `SysML: Model Elements` | Search, sort and export model elements. |
@@ -43,7 +43,9 @@ A model is not tied to one diagram. A **projection** chooses what to show: struc
 
 A **model-declared view** is different: its declaration identifies a rendering and its `expose` clauses select model elements. Choose it by name to use that declared selection. Current support is a subset of the SysML view language, not a full implementation of every `expose` and `filter` expression.
 
-**Scope** chooses one element and its subtree; **depth** limits the descendants drawn below each root. Deeper elements are summarized by a collapsed-count row. This is a diagram-wide depth setting, not independent expand/collapse state for each box. Scoped diagrams and depth controls currently support general, state and action-flow projections; nested/tree layout selection applies to the general projection.
+**Scope** chooses one element and its subtree; **depth** limits the descendants drawn below each root. In **Diagram options**, **Model selection** chooses the whole model, the current subtree, or a model-declared view; **Projection** chooses how that selection is drawn. The canvas always shows the current projection and selection. Compatible projection changes preserve the element scope, depth and layout. Choose **Whole model** before using a projection that cannot draw an element subtree. A model-declared view supplies its own projection; unsupported declared projections are unavailable.
+
+Deeper elements are summarized by a collapsed-count row. Select a node and use **Collapse selected node** or **Expand selected subtree** in Diagram options to override depth for that subtree. Nested node choices remain when a parent is collapsed, and **Reset node expansion** returns to the global depth setting. Choices are retained in the current browser tab separately for each model, projection and selection. Scoped diagrams, depth controls and node expansion support general, state and action-flow projections; nested/tree layout selection applies to the general projection.
 
 ### Source and diagram synchronization
 

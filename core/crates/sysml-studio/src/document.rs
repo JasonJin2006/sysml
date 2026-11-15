@@ -50,6 +50,10 @@ pub struct CanvasNode {
     /// Border ports, positioned relative to the box.
     pub ports: Vec<CanvasPort>,
     pub parent: Option<usize>,
+    /// Descendants within the selected scope and filter, before folding.
+    pub descendant_count: usize,
+    /// Descendants hidden at this node; expanded nodes report zero.
+    pub hidden_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -235,6 +239,8 @@ pub struct Session {
     pub scope: Option<String>,
     /// Descendant levels for the scoped diagram; `None` means unlimited.
     pub depth: Option<usize>,
+    /// Qualified node overrides: collapse, or expand the subtree beyond global depth.
+    pub folded: BTreeMap<String, bool>,
     /// A per-diagram style choice, kept separate from the view declaration.
     pub style: Option<sysml_view::layered::Style>,
     /// The model as it was before each edit, newest last.
@@ -272,6 +278,7 @@ impl Session {
             model_view: None,
             scope: None,
             depth: None,
+            folded: BTreeMap::new(),
             style: None,
             history: Vec::new(),
             redo: Vec::new(),
@@ -476,6 +483,17 @@ impl Session {
 
     /// The picture, narrowed by an annotation filter when one is given.
     pub fn document_with(&self, filter: Option<&str>) -> Result<CanvasDocument, String> {
+        if !self.folded.is_empty()
+            && (self.model_view.is_some()
+                || !matches!(
+                    self.view,
+                    View::General | View::StateTransition | View::ActionFlow
+                ))
+        {
+            return Err(
+                "Node folding requires a built-in general, state or action view.".to_string(),
+            );
+        }
         let loaded = self.sources.load()?;
         // An annotation filter comes first, because its ids are the model's: `annotated_by` reads the
         // tree the checker reads. Narrowing to what a model-declared view exposes happens after, and
@@ -500,7 +518,7 @@ impl Session {
         // A model-declared view draws what its `expose` clauses name; every other view draws the
         // whole model. The check below still runs over the whole tree: a diagnostic is about the
         // model, not about the picture on screen.
-        let (mut drawn, collapsed) = match &self.model_view {
+        let mut drawn = match &self.model_view {
             Some(key) => {
                 if self.scope.is_some() {
                     return Err(
@@ -513,43 +531,35 @@ impl Session {
                         "The model no longer declares view `{key}`. Choose another diagram or reopen the model."
                     ));
                 }
-                (
-                    prune_to(&narrowed, &exposures_of(&loaded.roots, key)),
-                    BTreeMap::new(),
-                )
+                prune_to(&narrowed, &exposures_of(&loaded.roots, key))
             }
             None => match &self.scope {
                 Some(key) => {
                     if !edit::live_names(&loaded).contains(key) {
                         return Err(format!("The model has no element named `{key}`. Refresh the diagram and choose an element that still exists."));
                     }
-                    let mut tree = subtree(&narrowed, key)
-                        .ok_or_else(|| format!("The model has no element named `{key}`."))?;
-                    let mut collapsed = BTreeMap::new();
-                    if let Some(depth) = self.depth {
-                        for root in &mut tree {
-                            let mut path: Vec<String> = key
-                                .split("::")
-                                .take(key.split("::").count().saturating_sub(1))
-                                .map(str::to_string)
-                                .collect();
-                            truncate_depth(root, 0, depth, &mut path, &mut collapsed);
-                        }
-                    }
-                    (tree, collapsed)
+                    subtree(&narrowed, key)
+                        .ok_or_else(|| format!("The model has no element named `{key}`."))?
                 }
-                None => {
-                    let mut tree = narrowed;
-                    let mut collapsed = BTreeMap::new();
-                    if let Some(depth) = self.depth {
-                        for root in &mut tree {
-                            truncate_depth(root, 0, depth, &mut Vec::new(), &mut collapsed);
-                        }
-                    }
-                    (tree, collapsed)
-                }
+                None => narrowed,
             },
         };
+        let mut metadata = BTreeMap::new();
+        let mut path: Vec<String> = self
+            .scope
+            .as_deref()
+            .and_then(|key| key.rsplit_once("::").map(|(parent, _)| parent))
+            .map(|parent| parent.split("::").map(str::to_string).collect())
+            .unwrap_or_default();
+        for root in &mut drawn {
+            fold_tree(
+                root,
+                self.depth.filter(|_| self.model_view.is_none()),
+                &self.folded,
+                &mut path,
+                &mut metadata,
+            );
+        }
         sysml_view::renumber_ids(&mut drawn);
         let mut graph = sysml_view::project(&drawn, self.view, self.mode);
         let mut keys = keys_by_index(&graph, &drawn);
@@ -557,7 +567,7 @@ impl Session {
             qualify_scoped_keys(&mut keys, scope);
         }
         for (&index, key) in &keys {
-            if let Some(count) = collapsed.get(key) {
+            if let Some((_, count)) = metadata.get(key).filter(|(_, hidden)| *hidden > 0) {
                 graph.nodes[index]
                     .attributes
                     .push(format!("… {count} nested elements collapsed"));
@@ -650,6 +660,8 @@ impl Session {
             // it joins.
             let placement = layout.get(&key);
             nodes.push(CanvasNode {
+                descendant_count: metadata.get(&key).map_or(0, |counts| counts.0),
+                hidden_count: metadata.get(&key).map_or(0, |counts| counts.1),
                 key,
                 index,
                 stereotype: node.stereotype.clone(),
@@ -1672,32 +1684,45 @@ fn subtree(roots: &[Element], key: &str) -> Option<Vec<Element>> {
     Some(vec![result])
 }
 
-/// Keep descendants through `depth` and replace deeper structure with one explicit compartment row.
-fn truncate_depth(
+/// Count the selected tree bottom-up while applying inherited depth and explicit overrides.
+fn fold_tree(
     element: &mut Element,
-    level: usize,
-    depth: usize,
+    remaining: Option<usize>,
+    folded: &BTreeMap<String, bool>,
     path: &mut Vec<String>,
-    collapsed: &mut BTreeMap<String, usize>,
-) {
+    metadata: &mut BTreeMap<String, (usize, usize)>,
+) -> usize {
     if element.name != "<anonymous>" {
         path.push(element.name.clone());
     }
-    if level >= depth && !element.children.is_empty() {
-        fn count(el: &Element) -> usize {
-            el.children.iter().map(|child| 1 + count(child)).sum()
-        }
-        let hidden = element.children.iter().map(|child| 1 + count(child)).sum();
-        collapsed.insert(path.join("::"), hidden);
+    let key = path.join("::");
+    let remaining = match folded.get(&key) {
+        Some(true) => Some(0),
+        Some(false) => None,
+        None => remaining,
+    };
+    let descendants = element
+        .children
+        .iter_mut()
+        .map(|child| {
+            1 + fold_tree(
+                child,
+                remaining.map(|depth| depth.saturating_sub(1)),
+                folded,
+                path,
+                metadata,
+            )
+        })
+        .sum();
+    let hidden = if remaining == Some(0) { descendants } else { 0 };
+    metadata.insert(key, (descendants, hidden));
+    if hidden > 0 {
         element.children.clear();
-    } else {
-        for child in &mut element.children {
-            truncate_depth(child, level + 1, depth, path, collapsed);
-        }
     }
     if element.name != "<anonymous>" {
         path.pop();
     }
+    descendants
 }
 
 /// The element tree cut down to what a view exposes.

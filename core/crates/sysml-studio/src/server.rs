@@ -310,6 +310,19 @@ fn route(method: &str, path: &str, query: &str, body: &str, state: &Mutex<State>
         }
         ("GET", "/api/document") => {
             let params = query_map(query);
+            let folded = match params.get("folded") {
+                Some(value) => match serde_json::from_str::<BTreeMap<String, bool>>(value) {
+                    Ok(folded) => folded,
+                    Err(_) => {
+                        return Response::text(
+                            400,
+                            "Folded must be a JSON object of qualified names and booleans."
+                                .to_string(),
+                        )
+                    }
+                },
+                None => BTreeMap::new(),
+            };
             let view = match params.get("view").map(String::as_str) {
                 Some("iv") => View::Interconnection,
                 Some("tv") => View::Traceability,
@@ -328,6 +341,7 @@ fn route(method: &str, path: &str, query: &str, body: &str, state: &Mutex<State>
                 Err(_) => return Response::text(500, "server state is poisoned".to_string()),
             };
             guard.session.view = view;
+            guard.session.folded = folded;
             guard.session.mode = mode;
             // `only` names a model-declared view; its exposes then decide what is drawn.
             guard.session.model_view = params.get("only").filter(|k| !k.is_empty()).cloned();

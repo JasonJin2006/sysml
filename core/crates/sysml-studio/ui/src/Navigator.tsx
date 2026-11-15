@@ -3,6 +3,7 @@ import { FileIcon } from '@radix-ui/react-icons';
 import { t } from './i18n';
 import { groupFiles } from './files';
 import type { ViewEntry } from './types';
+import { supportsElementScope } from './diagram';
 
 /** One line of `/api/outline`. Mirrors `document::OutlineEntry`. */
 export interface OutlineEntry {
@@ -49,6 +50,9 @@ export function Navigator({
   declaredViews,
   modelView,
   onModelView,
+  scope,
+  busy = false,
+  onWholeModel,
 }: {
   entries: OutlineEntry[];
   /** Every file the project is made of, as the server names them. */
@@ -64,6 +68,9 @@ export function Navigator({
   declaredViews: readonly ViewEntry[];
   modelView: string | null;
   onModelView: (key: string | null) => void;
+  scope?: string | null;
+  busy?: boolean;
+  onWholeModel?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -126,8 +133,11 @@ export function Navigator({
     files: group.files.filter((file) => !needle || file.name.toLowerCase().includes(needle)),
   })).filter((group) => group.files.length > 0);
 
-  const viewRow = (key: string, short: string, label: string, title: string, active: boolean, run: () => void) => (
-    <div key={key} className={`view-entry${active ? ' on' : ''}`} title={title} onClick={run}>
+  const viewRow = (key: string, short: string, label: string, title: string, active: boolean, run: () => void, disabled = false) => (
+    <div key={key} className={`view-entry${active ? ' on' : ''}`} title={title}
+      role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled}
+      onClick={() => { if (!disabled) run(); }}
+      onKeyDown={(event) => { if (!disabled && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); run(); } }}>
       <span className="view-key">{short}</span>
       <span>{label}</span>
     </div>
@@ -149,14 +159,19 @@ export function Navigator({
         </label>
       </div>
       <div className="panel-scroll">
-        <div className="nav-group-title">{t('Views')}</div>
+        <div className="nav-group-title">{t('Projection')}</div>
+        {(scope || modelView) && <div className="nav-scope">
+          <span>{modelView ? `${t('Model-declared view')}: ${modelView}` : `${t('Element subtree')}: ${scope}`}</span>
+          <button className="diagram-options-toggle" disabled={busy} onClick={onWholeModel}>{t('Show whole model')}</button>
+        </div>}
         {views.map((choice) => viewRow(
           choice.key,
           choice.key.toUpperCase(),
           t(choice.label),
-          t(choice.title),
+          modelView || (scope && !supportsElementScope(choice.key)) ? t('Choose Whole model before using this projection.') : t(choice.title),
           choice.key === view && modelView === null,
           () => onView(choice.key),
+          busy || Boolean(modelView) || Boolean(scope && !supportsElementScope(choice.key)),
         ))}
 
         <div className="nav-divider" />
@@ -167,9 +182,10 @@ export function Navigator({
           entry.name,
           entry.projection
             ? `${entry.key} ${entry.target} ${entry.projection}`
-            : `${entry.key} ${entry.target} ${t('drawn with the current projection')}`,
+            : `${entry.key} ${t('This model-declared view has no supported projection.')}`,
           modelView === entry.key,
           () => onModelView(entry.key),
+          busy || !entry.projection,
         ))}
 
         <div className="nav-divider" />

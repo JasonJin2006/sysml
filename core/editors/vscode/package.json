@@ -2,7 +2,7 @@
   "name": "sysml-v2",
   "displayName": "SysML v2",
   "description": "Edit and check SysML v2 models, navigate declarations, and explore interactive diagrams beside your code. Includes a native model engine.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "icon": "icon.png",
   "keywords": ["sysml", "sysml-v2", "kerml", "mbse", "systems-engineering", "modeling"],
   "homepage": "https://github.com/JasonJin2006/sysml",

@@ -70,6 +70,16 @@ test('targeted diagrams encode scope, depth and layout independently', async (co
   assert.match(url, /layout=tree/);
 });
 
+test('node folding encodes qualified names and preserves explicit expansion', async (context) => {
+  const fetch = context.mock.method(globalThis, 'fetch', async () => new Response('{}'));
+  const folded = { 'P::vehicle::chassis': true, 'P::vehicle::power': false };
+  await fetchDocument('gv', 'extended', null, undefined, undefined, 'P::vehicle', 2, 'tree', folded);
+  const url = new URL(String(fetch.mock.calls[0].arguments[0]), 'http://localhost');
+  assert.deepEqual(JSON.parse(url.searchParams.get('folded')!), folded);
+  assert.equal(url.searchParams.get('depth'), '2');
+  assert.equal(url.searchParams.get('scope'), 'P::vehicle');
+});
+
 test('source lookup failures return a readable reason rather than rejecting or losing it', async (context) => {
   context.mock.method(globalThis, 'fetch', async () => new Response('Source file is unavailable.', { status: 404 }));
   context.mock.method(console, 'warn', () => {});

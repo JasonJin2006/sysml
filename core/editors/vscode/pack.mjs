@@ -7,7 +7,8 @@
 // The staged copies go to `bin/<platform>-<arch>/`, which is what the extension looks for after
 // its settings and before the build a clone produces.
 
-import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,15 @@ const stage = path.join(here, 'bin', platform);
 const library = path.resolve(here, '..', '..', 'stdlib');
 if (!existsSync(path.join(library, 'MANIFEST.sha256'))) {
   throw new Error(`missing versioned standard library: ${library}`);
+}
+for (const line of readFileSync(path.join(library, 'MANIFEST.sha256'), 'utf8').trim().split(/\r?\n/)) {
+  const entry = line.match(/^([a-f0-9]{64})  (.+)$/);
+  if (!entry) throw new Error('invalid standard-library checksum entry');
+  const [, expected, relative] = entry;
+  const file = path.resolve(library, relative);
+  if (!file.startsWith(library + path.sep)) throw new Error(`invalid standard-library path: ${relative}`);
+  const actual = createHash('sha256').update(readFileSync(file)).digest('hex');
+  if (actual !== expected) throw new Error(`standard-library checksum mismatch: ${relative}`);
 }
 cpSync(library, path.join(stage, 'stdlib'), { recursive: true });
 

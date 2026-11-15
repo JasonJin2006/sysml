@@ -1,5 +1,6 @@
 import type { CanvasDocument, SourceRange } from './types';
 import { t, type Lang } from './i18n.ts';
+import type { Folded } from './folding';
 
 function isAbort(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
@@ -68,13 +69,15 @@ export function documentUrl(
   scope?: string | null,
   depth?: number | null,
   layout?: 'nested' | 'tree',
+  folded?: Folded,
 ): string {
   const base = `/api/document?view=${view}&mode=${mode}`;
   const scoped = only ? `${base}&only=${encodeURIComponent(only)}` : base;
   const filtered = filter && filter.trim() !== '' ? `${scoped}&filter=${encodeURIComponent(filter)}` : scoped;
   const element = scope ? `${filtered}&scope=${encodeURIComponent(scope)}` : filtered;
   const withDepth = depth !== undefined && depth !== null ? `${element}&depth=${depth}` : element;
-  return layout ? `${withDepth}&layout=${layout}` : withDepth;
+  const styled = layout ? `${withDepth}&layout=${layout}` : withDepth;
+  return folded && Object.keys(folded).length > 0 ? `${styled}&folded=${encodeURIComponent(JSON.stringify(folded))}` : styled;
 }
 
 export function fetchDocument(
@@ -86,8 +89,9 @@ export function fetchDocument(
   scope?: string | null,
   depth?: number | null,
   layout?: 'nested' | 'tree',
+  folded?: Folded,
 ): Promise<CanvasDocument> {
-  return requestJson<CanvasDocument>(documentUrl(view, mode, only, filter, scope, depth, layout), { signal }).catch((error) => {
+  return requestJson<CanvasDocument>(documentUrl(view, mode, only, filter, scope, depth, layout, folded), { signal }).catch((error) => {
     if (isAbort(error)) throw error;
     const reason = (error instanceof Error ? error.message : String(error)).replace(/[.!?。！？]$/, '');
     console.warn('Document request failed', { view, mode, only, filter, error });

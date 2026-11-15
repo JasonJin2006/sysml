@@ -200,6 +200,63 @@ test('diagram picker offers built-ins and model views then sends the shared diag
   } });
 });
 
+test('native diagram choices retain scope or explicitly leave it and await confirmed state', async t => {
+  const server = http.createServer((_request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify([{ key: 'P::Nested::Saved', name: 'Saved', projection: 'stv', target: 'StateTransitionView' }]));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  for (const depth of [2, null]) {
+    for (const selection of ['gv', 'stv', 'afv', 'whole-gv', 'whole-iv', 'declared', 'cancel']) {
+      await t.test(`${selection}, depth ${depth ?? 'all'}`, async () => {
+        const { api, fake, context } = load();
+        const running = await api.openStudio(context, { scheme: 'file', fsPath: 'model.sysml' });
+        running.url = `http://127.0.0.1:${server.address().port}`;
+        const confirmed = { view: 'gv', only: null, scope: 'P::Car', depth, layout: 'tree' };
+        running.panel.webview.receive({ type: 'diagramState', ...confirmed });
+        const before = running.panel.messages.length;
+        fake.pick = items => {
+          const scoped = items.filter(item => item.scope);
+          assert.deepEqual(scoped.map(item => item.view), ['gv', 'stv', 'afv']);
+          for (const item of scoped) {
+            assert.match(item.description, /Element-scoped/);
+            assert.ok(item.detail.includes('P::Car'));
+            assert.ok(item.detail.includes(`depth: ${depth ?? 'all'}`));
+          }
+          const whole = items.filter(item => !item.scope && item.only === null);
+          assert.equal(whole.length, 7);
+          assert.ok(whole.every(item => item.label.includes('(whole model)') && item.description.includes('Whole-model')));
+          const declared = items.find(item => item.only === 'P::Nested::Saved');
+          assert.equal(declared.description, 'Model-declared view');
+          assert.ok(declared.detail.includes('P::Nested::Saved'));
+          if (selection === 'cancel') return undefined;
+          if (selection === 'declared') return declared;
+          if (selection.startsWith('whole-')) return whole.find(item => item.view === selection.slice(6));
+          return scoped.find(item => item.view === selection);
+        };
+        await api.chooseDiagram(context);
+        assert.deepEqual(running.diagram, confirmed);
+        if (selection === 'cancel') {
+          assert.equal(running.panel.messages.length, before);
+          return;
+        }
+        const scoped = ['gv', 'stv', 'afv'].includes(selection);
+        const expected = {
+          view: selection === 'declared' ? 'stv' : selection.replace('whole-', ''),
+          only: selection === 'declared' ? 'P::Nested::Saved' : null,
+          scope: scoped ? 'P::Car' : null, depth: scoped ? depth : null, layout: 'tree',
+        };
+        assert.deepEqual(running.panel.messages.at(-1), {
+          channel: 'vscode-sysml', message: { type: 'diagram', ...expected },
+        });
+        running.panel.webview.receive({ type: 'diagramState', ...expected });
+        assert.deepEqual(running.diagram, expected);
+      });
+    }
+  }
+});
+
 test('grid commands use the local server URL after the saved-model guard', async () => {
   const { api, fake, vscode, context } = load();
   const uri = { scheme: 'file', fsPath: 'model.sysml' };

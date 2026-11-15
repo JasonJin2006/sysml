@@ -2,18 +2,18 @@
 
 > Chinese translation: [docs/zh/core/stdlib/VENDORED.md](../../docs/zh/core/stdlib/VENDORED.md)
 
-This library was extracted from OMG's official per-library `.kpar` packages. It is unchanged, so that a single `git clone` gives a complete standard library, instead of quietly falling back to the 68-line stub at `crates/sysml-syntax/stdlib.sysml`.
+This library was extracted from OMG's official per-library `.kpar` packages. Its content is unchanged apart from the repository's LF line-ending normalization, so that a single `git clone` gives a complete standard library, instead of quietly falling back to the 68-line stub at `crates/sysml-syntax/stdlib.sysml`.
 
 ## Source and License
 
 - Upstream: the ten standard libraries in OMG's 2025-02 release, as `.kpar` files. The URL for each one is in `README.md` in the same directory.
 - License: GNU Lesser General Public License v3.0. The full text is in `LICENSE` in the same directory.
 - Contents: 94 source files (58 `.sysml`, 36 `.kerml`), 28433 lines, including the three layers of the Kernel, 21 Systems Library files, and six domain libraries.
-- Verification: `MANIFEST.sha256` records the sha256 of each of the 94 source files. `sha256sum -c MANIFEST.sha256` can recheck them.
+- Verification: `MANIFEST.sha256` records the sha256 of each of the 94 source files as checked out with LF line endings. `sha256sum -c MANIFEST.sha256` can recheck them. Three original archive members contain CRLF or mixed line endings; their manifest entries were corrected in 0.2.3 after confirming that LF-normalized archive bytes exactly match the repository files.
 
 Only the `.sysml` and `.kerml` source files are kept. `.project.json`, `.meta.json`, and `.DS_Store` are dropped. The directory layout is this project's own, not the one inside the kpar.
 
-LGPL v3 permits redistribution as is. Here, no library file is modified. The files are only placed in the repository, and the kernel reads them at runtime without changing them. If the library contents ever need to change, the licensing impact must be evaluated separately. Do not edit the files in place.
+LGPL v3 permits redistribution as is. Here, no library content is modified beyond LF line-ending normalization. The files are only placed in the repository, and the kernel reads them at runtime without changing them. If the library contents ever need to change, the licensing impact must be evaluated separately. Do not edit the files in place.
 
 ## Replaced Once: The Version Changed, Not the Source
 

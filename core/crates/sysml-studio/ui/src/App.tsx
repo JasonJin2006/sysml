@@ -29,6 +29,8 @@ import type { ViewEntry } from './types';
 import { useTheme } from './theme';
 import { exportSceneSvg } from './export';
 import { isEmbedded, onHost, reportDiagramState, reportSelection, revealInHost } from './host';
+import { foldingKey, readFolded, type Folded } from './folding';
+import { projectSelection, supportsElementScope, wholeModel } from './diagram';
 
 const VIEWS: ViewKey[] = ['gv', 'iv', 'tv', 'pv', 'stv', 'afv', 'sv'];
 const VIEW_TITLE: Record<ViewKey, string> = {
@@ -156,6 +158,8 @@ export default function App() {
   const [depth, setDepth] = useState<number | null>(null);
   const [layoutStyle, setLayoutStyle] = useState<'nested' | 'tree'>('nested');
   const [diagramOptionsOpen, setDiagramOptionsOpen] = useState(false);
+  const [folded, setFolded] = useState<Folded>({});
+  const foldedChoices = useRef(new Map<string, Folded>());
   const modelViewRef = useRef<string | null>(null);
   const scopeRef = useRef<string | null>(null);
   const depthRef = useRef<number | null>(null);
@@ -252,6 +256,7 @@ export default function App() {
     scope?: string | null;
     depth?: number | null;
     layout?: 'nested' | 'tree';
+    folded?: Folded;
     /**
      * Move the change-marks baseline to the document being loaded.
      *
@@ -270,16 +275,35 @@ export default function App() {
     // visibly loading, so the badge would blink forever.
     if (!options.quiet) setBusy(true);
     try {
-      const next = await fetchDocument(
-        options.view ?? view,
-        options.mode ?? 'extended',
-        options.only === undefined ? modelViewRef.current : options.only,
-        options.filter === undefined ? filterRef.current : options.filter,
-        controller.signal,
-        options.scope === undefined ? scopeRef.current : options.scope,
+      const nextView = options.view ?? view;
+      const nextOnly = options.only === undefined ? modelViewRef.current : options.only;
+      const nextScope = options.scope === undefined ? scopeRef.current : options.scope;
+      const nextFilter = options.filter === undefined ? filterRef.current : options.filter;
+      const supported = DEPTH_VIEWS.has(nextView as ViewKey) && !nextOnly;
+      const restore = (files: string[]): Folded => {
+        if (!supported) return {};
+        const key = foldingKey(files, nextView, nextScope, nextOnly, nextFilter);
+        const cached = foldedChoices.current.get(key);
+        if (cached) return cached;
+        try { return readFolded(sessionStorage.getItem(key)); } catch { return {}; }
+      };
+      let choices = supported ? options.folded ?? (docRef.current ? restore(docRef.current.files) : {}) : {};
+      const request = (value: Folded) => fetchDocument(
+        nextView, options.mode ?? 'extended', nextOnly, nextFilter, controller.signal, nextScope,
         options.depth === undefined ? depthRef.current : options.depth,
-        options.layout === undefined ? layoutRef.current : options.layout,
+        options.layout === undefined ? layoutRef.current : options.layout, value,
       );
+      let next = await request(choices);
+      // The server identifies the model on the first response; only then can saved choices be restored.
+      if (!docRef.current && options.folded === undefined) {
+        choices = restore(next.files);
+        if (Object.keys(choices).length > 0) next = await request(choices);
+      }
+      if (controller.signal.aborted) return null;
+      const key = foldingKey(next.files, nextView, nextScope, nextOnly, nextFilter);
+      foldedChoices.current.set(key, choices);
+      try { sessionStorage.setItem(key, JSON.stringify(choices)); } catch { /* retain in memory */ }
+      setFolded(choices);
       docRef.current = next;
       // Keep the poll's baseline in step with what is actually on screen: without this the next
       // poll compares against a stale value and reports a change that already happened.
@@ -757,7 +781,7 @@ export default function App() {
       return;
     }
     for (const candidate of ['pv', 'gv'] as ViewKey[]) {
-      if (candidate === view) continue;
+      if (candidate === view && !scopeRef.current && !modelViewRef.current) continue;
       let probe: CanvasDocument;
       try {
         probe = await fetchDocument(candidate, 'extended', null);
@@ -765,9 +789,14 @@ export default function App() {
         continue;
       }
       if (!probe.nodes.some((n) => n.key === key)) continue;
-      setView(candidate);
-      const next = await load({ view: candidate, keepSelection: false });
+      const next = await load({ view: candidate, only: null, scope: null, depth: null,
+        folded: {}, keepSelection: false, rebaseline: true });
       if (next) {
+        setView(candidate);
+        setModelView(null);
+        setScope(null);
+        setDepth(null);
+        reportDiagramState({ view: candidate, only: null, scope: null, depth: null, layout: layoutRef.current });
         setSelection([key]);
         centerOn(next, key);
       }
@@ -870,6 +899,21 @@ export default function App() {
     fitSoon();
     return document;
   }, [fitSoon, load]);
+
+  const chooseProjection = useCallback((next: ViewKey) => {
+    const target = projectSelection({ view, only: modelViewRef.current, scope: scopeRef.current,
+      depth: depthRef.current, layout: layoutRef.current }, next);
+    if (!target) {
+      toast(t('Choose Whole model before using this projection.'), true);
+      return;
+    }
+    void changeView(target.view, target.only, target);
+  }, [changeView, toast, view]);
+
+  const showWholeModel = () => {
+    const target = wholeModel({ view, only: modelView, scope, depth, layout: layoutStyle });
+    void changeView(target.view, target.only, target);
+  };
 
   useEffect(() => {
     if (!embedded) return;
@@ -974,7 +1018,10 @@ export default function App() {
    */
   const commands: Command[] = [
     { id: 'Fit the picture', keys: 'f', run: fit },
-    ...VIEWS.map((key) => ({ id: VIEW_TITLE[key], run: () => changeView(key) })),
+    ...VIEWS.map((key) => ({ id: VIEW_TITLE[key], run: () => chooseProjection(key),
+      disabled: busy || Boolean(modelView) || Boolean(scope && !supportsElementScope(key)),
+      reason: t('Choose Whole model before using this projection.') })),
+    ...(scope || modelView ? [{ id: 'Show whole model', run: showWholeModel }] : []),
     ...(view === 'gv' && !modelView ? [
       { id: 'Use nested diagram layout', run: () => changeLayout('nested') },
       { id: 'Use tree diagram layout', run: () => changeLayout('tree') },
@@ -1021,6 +1068,12 @@ export default function App() {
       <button title={t('Zoom to fit')} onClick={fit}>{t('Fit')}</button>
     </div>
   );
+  const selectedNode = selection.length === 1 ? doc?.nodes.find((node) => node.key === selection[0]) : undefined;
+  const foldSelected = async (collapse: boolean) => {
+    if (!selectedNode || busy) return;
+    const next = await load({ folded: { ...folded, [selectedNode.key]: collapse }, keepSelection: true, rebaseline: true });
+    if (next) fitSoon();
+  };
   return (
     <>
       {!embedded && (
@@ -1161,16 +1214,19 @@ export default function App() {
           onOpenFile={(path) => void openFile(path)}
           views={VIEW_CHOICES}
           view={view}
-          onView={(key) => changeView(key as ViewKey)}
+          onView={(key) => chooseProjection(key as ViewKey)}
+          scope={scope}
+          busy={busy}
+          onWholeModel={showWholeModel}
           declaredViews={views}
           modelView={modelView}
           onModelView={(key) => {
             if (key === null) {
-              changeView(view, null);
+              showWholeModel();
               return;
             }
             const entry = views.find((candidate) => candidate.key === key);
-            changeView((entry?.projection || view) as ViewKey, key);
+            if (entry?.projection) changeView(entry.projection as ViewKey, key);
           }}
         />
         )}
@@ -1211,46 +1267,73 @@ export default function App() {
               viewportRef={viewport}
             />
             {zoomControls}
+            <div className="diagram-context" role="status" aria-live="polite">
+              <strong>{t('Projection')}: {t(VIEW_LABEL[view])}</strong>
+              <span>{modelView ? `${t('Model-declared view')}: ${modelView}`
+                : scope ? `${t('Element subtree')}: ${scope}` : t('Whole model')}</span>
+              {!modelView && supportsElementScope(view) && <span>{t('Depth')}: {depth ?? t('Unlimited')}</span>}
+            </div>
             <div className="diagram-options">
               {diagramOptionsOpen && (
                 <div className="diagram-options-panel" role="group" aria-label={t('Diagram options')}>
-                  <label>{t('Diagram')}
-                    <select value={modelView ? `declared:${modelView}` : view} onChange={(event) => {
+                  <label>{t('Model selection')}
+                    <select disabled={busy} value={modelView ? `declared:${modelView}` : scope ? 'element' : 'whole'} onChange={(event) => {
                       const value = event.target.value;
                       if (value.startsWith('declared:')) {
                         const entry = views.find((candidate) => candidate.key === value.slice(9));
-                        if (entry) void changeView((entry.projection || 'gv') as ViewKey, entry.key);
-                      } else {
-                        const next = value as ViewKey;
-                        void changeView(next, null, DEPTH_VIEWS.has(next)
-                          ? { scope, depth, layout: layoutStyle } : {});
-                      }
+                        if (entry?.projection) void changeView(entry.projection as ViewKey, entry.key);
+                      } else if (value === 'whole') showWholeModel();
                     }}>
-                      {VIEWS.map((key) => <option key={key} value={key}>{t(VIEW_LABEL[key])}</option>)}
-                      {views.map((entry) => <option key={entry.key} value={`declared:${entry.key}`}>{entry.name} — {t('Model-declared view')}</option>)}
+                      <option value="whole">{t('Whole model')}</option>
+                      {scope && <option value="element">{t('Element subtree')}: {scope}</option>}
+                      {views.length > 0 && <optgroup label={t('Views the model declares')}>
+                        {views.map((entry) => <option key={entry.key} value={`declared:${entry.key}`} disabled={!entry.projection}>{entry.key}{entry.projection ? '' : ` — ${t('Unsupported projection')}`}</option>)}
+                      </optgroup>}
                     </select>
                   </label>
+                  <label>{t('Projection')}
+                    <select disabled={busy || Boolean(modelView)} value={view}
+                      onChange={(event) => chooseProjection(event.target.value as ViewKey)}>
+                      {VIEWS.map((key) => <option key={key} value={key} disabled={Boolean(scope && !supportsElementScope(key))}>{t(VIEW_LABEL[key])}</option>)}
+                    </select>
+                  </label>
+                  {modelView && <p>{t('A model-declared view selects its own elements and projection. Choose Whole model to use another projection.')}</p>}
+                  {scope && <p>{t('Element scope supports General, State and Action flow projections. Choose Whole model for other projections.')}</p>}
                   {view === 'gv' && !modelView && (
                     <label>{t('Layout')}
-                      <select value={layoutStyle} onChange={(event) => changeLayout(event.target.value as 'nested' | 'tree')}>
+                      <select disabled={busy} value={layoutStyle} onChange={(event) => changeLayout(event.target.value as 'nested' | 'tree')}>
                         <option value="nested">{t('Nested')}</option>
                         <option value="tree">{t('Tree')}</option>
                       </select>
                     </label>
                   )}
                   {DEPTH_VIEWS.has(view) && !modelView && (
-                    <label>{t('Depth')}
-                      <select value={depth ?? 'all'} onChange={(event) => changeDepth(event.target.value === 'all' ? null : Number(event.target.value))}>
-                        {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}</option>)}
-                        <option value="all">{t('Unlimited')}</option>
-                      </select>
-                    </label>
+                    <>
+                      <label>{t('Depth')}
+                        <select disabled={busy} value={depth ?? 'all'} onChange={(event) => changeDepth(event.target.value === 'all' ? null : Number(event.target.value))}>
+                          {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}</option>)}
+                          {depth !== null && depth > 4 && <option value={depth}>{depth}</option>}
+                          <option value="all">{t('Unlimited')}</option>
+                        </select>
+                      </label>
+                      <button className="diagram-options-toggle"
+                        disabled={busy || !selectedNode?.descendant_count || (selectedNode.hidden_count ?? 0) > 0}
+                        onClick={() => void foldSelected(true)}>{t('Collapse selected node')}</button>
+                      <button className="diagram-options-toggle"
+                        disabled={busy || !selectedNode?.descendant_count}
+                        onClick={() => void foldSelected(false)}>{t('Expand selected subtree')}</button>
+                      <button className="diagram-options-toggle" disabled={busy || Object.keys(folded).length === 0}
+                        onClick={() => void load({ folded: {}, rebaseline: true }).then((next) => { if (next) fitSoon(); })}>
+                        {t('Reset node expansion')}
+                      </button>
+                      <p>{t('Select a node to collapse it or expand its subtree beyond the depth limit. Choices are kept in this tab.')}</p>
+                    </>
                   )}
-                  <button className="diagram-options-toggle" disabled={selection.length !== 1}
-                    onClick={() => void changeView('gv', null, { scope: selection[0], depth: 3, layout: layoutStyle })}>
+                  <button className="diagram-options-toggle" disabled={busy || selection.length !== 1}
+                    onClick={() => void changeView(supportsElementScope(view) ? view : 'gv', null, { scope: selection[0], depth: 3, layout: layoutStyle })}>
                     {t('Visualize selected element')}
                   </button>
-                  {(scope || modelView) && <button className="diagram-options-toggle" onClick={() => void changeView(view)}>{t('Show whole model')}</button>}
+                  {(scope || modelView) && <button className="diagram-options-toggle" disabled={busy} onClick={showWholeModel}>{t('Show whole model')}</button>}
                   <button className="diagram-options-toggle" onClick={exportSvg}>{t('Export SVG')}</button>
                   <button className="diagram-options-toggle" onClick={() => void reset()}>{t('Clear every manual position')}</button>
                   <p>{scope ? `${t('Showing element')}: ${scope}` : modelView ? `${t('Model-declared view')}: ${modelView}` : depth !== null ? `${t('Showing the whole model')} · ${t('Depth')} ${depth}` : t('Showing the whole model')}</p>

@@ -348,7 +348,13 @@ fn visible(el: &Element) -> bool {
         el.kind,
         // `Unsupported` marks a construct the front end parsed but did not model. It exists so
         // `check` can report coverage; it is not a system element and nothing should draw it.
-        Kind::Package | Kind::Satisfy | Kind::Connection | Kind::Import | Kind::Unsupported
+        // An expose clause selects a view's elements; it is not a separate model box.
+        Kind::Package
+            | Kind::Satisfy
+            | Kind::Connection
+            | Kind::Import
+            | Kind::Expose
+            | Kind::Unsupported
     )
 }
 

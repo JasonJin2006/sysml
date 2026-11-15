@@ -29,6 +29,8 @@ export interface CanvasNode {
   rows: string[];
   ports: CanvasPort[];
   parent: number | null;
+  descendant_count?: number;
+  hidden_count?: number;
 }
 
 export interface CanvasFrame {

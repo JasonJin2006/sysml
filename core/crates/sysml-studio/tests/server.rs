@@ -145,6 +145,67 @@ fn a_decide_body_that_is_not_json_is_a_400() {
 }
 
 #[test]
+fn folded_query_requires_an_object_of_booleans() {
+    let (_model, port) = serve("folded-invalid");
+    for value in [
+        "",
+        "no-json",
+        "%7B",
+        "null",
+        "%5B%5D",
+        "true",
+        "%7B%22P%22%3A1%7D",
+        "%7B%22P%22%3A%22true%22%7D",
+    ] {
+        let (status, body) = get(port, &format!("/api/document?folded={value}"));
+        assert!(status.contains("400"), "{value}: {status} {body}");
+    }
+}
+
+#[test]
+fn folded_query_is_decoded_and_omission_resets_it() {
+    let (_model, port) = serve("folded-reset");
+    let (status, body) = get(port, "/api/document?folded=%7B%22P%3A%3AThing%22%3Atrue%7D");
+    assert!(status.contains("200"), "{status} {body}");
+    let doc: serde_json::Value = serde_json::from_str(&body).expect("document");
+    let owner = doc["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["key"] == "P::Thing")
+        .unwrap();
+    assert_eq!(owner["descendant_count"], 1);
+    assert_eq!(owner["hidden_count"], 1);
+    let (status, body) = get(port, "/api/document");
+    assert!(status.contains("200"), "{status} {body}");
+    let doc: serde_json::Value = serde_json::from_str(&body).expect("document");
+    let owner = doc["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["key"] == "P::Thing")
+        .unwrap();
+    assert_eq!(owner["hidden_count"], 0);
+    for view in ["iv", "tv", "pv", "sv"] {
+        let (status, body) = get(
+            port,
+            &format!("/api/document?view={view}&folded=%7B%22P%22%3Afalse%7D"),
+        );
+        assert!(status.contains("400"), "{view}: {status} {body}");
+        let (status, body) = get(port, &format!("/api/document?view={view}&folded=%7B%7D"));
+        assert!(status.contains("200"), "{view}: {status} {body}");
+    }
+    let (status, body) = get(
+        port,
+        "/api/document?only=P%3A%3Adeclared&folded=%7B%22P%22%3Atrue%7D",
+    );
+    assert!(
+        status.contains("400") && body.contains("Node folding"),
+        "{status} {body}"
+    );
+}
+
+#[test]
 fn a_decide_body_with_an_unknown_origin_is_a_400() {
     let (_model, port) = serve("decide-bad-origin");
     let (status, body) = post(

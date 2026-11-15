@@ -552,7 +552,7 @@ const DIAGRAMS = [
 ] as const;
 
 interface ModelView { key: string; name: string; projection: string; target: string }
-interface DiagramChoice extends vscode.QuickPickItem { view: string; only: string | null }
+interface DiagramChoice extends vscode.QuickPickItem { view: string; only: string | null; scope: string | null; depth: number | null }
 interface DepthChoice extends vscode.QuickPickItem { depth: number | null }
 
 interface DiagramDefaults { depth: number; layout: 'nested' | 'tree' }
@@ -658,12 +658,23 @@ async function chooseDiagram(context: vscode.ExtensionContext): Promise<void> {
     await reportFailure('Could not load model views. The current diagram is unchanged.', error);
     return;
   }
-  const items: DiagramChoice[] = DIAGRAMS.map(([view, label, detail]) => ({
-    label, description: 'Whole model', detail, view, only: null,
-  }));
+  const current = running.diagram;
+  const items: DiagramChoice[] = [];
+  if (current?.scope) {
+    for (const [view, label, detail] of DIAGRAMS) {
+      if (!['gv', 'stv', 'afv'].includes(view)) continue;
+      items.push({ label, description: 'Element-scoped projection',
+        detail: `${current.scope} — ${detail}; depth: ${current.depth ?? 'all'}; layout: ${current.layout}`,
+        view, only: null, scope: current.scope, depth: current.depth });
+    }
+  }
+  items.push(...DIAGRAMS.map(([view, label, detail]) => ({
+    label: `${label} (whole model)`, description: 'Whole-model built-in projection',
+    detail: `Whole model — ${detail}`, view, only: null, scope: null, depth: null,
+  })));
   for (const entry of declared) {
     items.push({ label: entry.name, description: 'Model-declared view',
-      detail: `${entry.key} — ${entry.target}`, view: entry.projection, only: entry.key });
+      detail: `${entry.key} — ${entry.target}`, view: entry.projection, only: entry.key, scope: null, depth: null });
   }
   const picked = await vscode.window.showQuickPick(items, {
     title: 'Choose Diagram',
@@ -675,7 +686,11 @@ async function chooseDiagram(context: vscode.ExtensionContext): Promise<void> {
     void vscode.window.showInformationMessage('This view uses a diagram type that is not supported yet. Choose one of the built-in diagram types.');
     return;
   }
-  postDiagram(running, { view: picked.view, only: picked.only, scope: null, depth: null, layout: 'nested' });
+  // The canvas reports diagramState after applying the request; keep the last confirmed state.
+  void running.panel.webview.postMessage({ channel: 'vscode-sysml', message: {
+    type: 'diagram', view: picked.view, only: picked.only, scope: picked.scope, depth: picked.depth,
+    layout: current?.layout ?? 'nested',
+  } });
 }
 
 async function visualizeElement(context: vscode.ExtensionContext, selected?: vscode.Range): Promise<void> {
